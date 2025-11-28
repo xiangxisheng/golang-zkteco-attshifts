@@ -91,11 +91,22 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
 	lastDay := firstDay.AddDate(0, 1, -1)
 	dayCount := lastDay.Day()
 
-	users, err := service.QueryUsers(ctx)
+	deptParam := r.URL.Query().Get("dept")
+	var deptIDPtr *int
+	if deptParam != "" {
+		if dv, err := strconv.Atoi(deptParam); err == nil && dv > 0 {
+			deptIDPtr = &dv
+		}
+	}
+	q := r.URL.Query().Get("q")
+
+	users, err := service.QueryUsersFiltered(ctx, deptIDPtr, q)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+
+	depts, _ := service.QueryDepartments(ctx)
 
 	att, err := service.QueryAtt(ctx, firstDay, lastDay)
 	if err != nil {
@@ -135,7 +146,7 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
     </head>
     <body>
     <header class="topbar">
-      <h1>考勤报表{{.Year}}-{{.Month}} - 富邦科技</h1>
+      <h1>考勤报表{{.Year}}-{{.Month}}</h1>
       <form id="ym-form" method="get" class="ym-picker">
         <label>年份</label>
         <select name="year">
@@ -149,9 +160,18 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
           <option value="{{.}}" {{if index $.SelMonth .}}selected{{end}}>{{.}}</option>
           {{end}}
         </select>
+        <label>部门</label>
+        <select name="dept">
+          <option value="0" {{if $.SelDept0}}selected{{end}}>全部</option>
+          {{range .Depts}}
+          <option value="{{.DeptID}}" {{if index $.SelDept .DeptID}}selected{{end}}>{{.DeptName}}</option>
+          {{end}}
+        </select>
+        <label>搜索</label>
+        <input type="text" name="q" value="{{.Query}}" placeholder="工号/姓名" />
         <button type="submit">切换</button>
       </form>
-      <a class="download" href="/download?year={{.Year}}&month={{.Month}}">下载 CSV</a>
+      <a class="download" href="/download?year={{.Year}}&month={{.Month}}&dept={{.Dept}}&q={{.Query}}">下载 CSV</a>
     </header>
     <main>
     <table class="grid">
@@ -203,7 +223,7 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
 		days = append(days, i)
 	}
 	var years []int
-	for i := now.Year() - 5; i <= now.Year()+1; i++ {
+	for i := now.Year() - 1; i <= now.Year()+1; i++ {
 		years = append(years, i)
 	}
 	var months []int
@@ -236,6 +256,22 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
 		"SelMonth":  map[int]bool{m: true},
 		"Weekend":   weekend,
 		"WeekNames": weekNames,
+		"Depts":     depts,
+		"Dept": func() int {
+			if deptIDPtr == nil {
+				return 0
+			}
+			return *deptIDPtr
+		}(),
+		"SelDept": func() map[int]bool {
+			m := map[int]bool{}
+			if deptIDPtr != nil {
+				m[*deptIDPtr] = true
+			}
+			return m
+		}(),
+		"SelDept0": deptIDPtr == nil,
+		"Query":    q,
 	}
 
 	t.Execute(w, obj)
@@ -262,7 +298,16 @@ func handlerDownload(w http.ResponseWriter, r *http.Request) {
 	lastDay := firstDay.AddDate(0, 1, -1)
 	dayCount := lastDay.Day()
 
-	users, _ := service.QueryUsers(ctx)
+	deptParam := r.URL.Query().Get("dept")
+	var deptIDPtr *int
+	if deptParam != "" {
+		if dv, err := strconv.Atoi(deptParam); err == nil && dv > 0 {
+			deptIDPtr = &dv
+		}
+	}
+	q := r.URL.Query().Get("q")
+
+	users, _ := service.QueryUsersFiltered(ctx, deptIDPtr, q)
 	att, _ := service.QueryAtt(ctx, firstDay, lastDay)
 
 	data := make(map[int]map[int]DayValue)
