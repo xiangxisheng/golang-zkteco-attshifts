@@ -67,6 +67,7 @@ func wrapSumStr(data map[int]SumValue) map[string]map[string]string {
 func RegisterRoutes() {
 	http.HandleFunc("/", handlerIndex)
 	http.HandleFunc("/download", handlerDownload)
+	http.HandleFunc("/download.xls", handlerDownloadXLS)
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("D:\\data\\code\\golang\\golang-zkteco-attshifts\\zkteco-attshifts\\wwwroot\\static"))))
 }
 
@@ -171,7 +172,27 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
         <input type="text" name="q" value="{{.Query}}" placeholder="工号/姓名" />
         <button type="submit">切换</button>
       </form>
-      <a class="download" href="/download?year={{.Year}}&month={{.Month}}&dept={{.Dept}}&q={{.Query}}">下载 CSV</a>
+      <button id="open-dl" class="download">下载</button>
+      <div id="dl-modal" class="modal hidden">
+        <div class="modal-content">
+          <h2>导出报表</h2>
+          <form id="dl-form" method="get" action="/download">
+            <input type="hidden" name="year" value="{{.Year}}" />
+            <input type="hidden" name="month" value="{{.Month}}" />
+            <input type="hidden" name="dept" value="{{.Dept}}" />
+            <input type="hidden" name="q" value="{{.Query}}" />
+            <label>格式</label>
+            <select name="fmt">
+              <option value="csv" selected>CSV</option>
+              <option value="xls">Excel</option>
+            </select>
+            <div class="modal-actions">
+              <button type="submit" class="primary">开始下载</button>
+              <button type="button" id="close-dl">取消</button>
+            </div>
+          </form>
+        </div>
+      </div>
     </header>
     <main>
     <table class="grid">
@@ -326,12 +347,14 @@ func handlerDownload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/csv")
 	w.Header().Set("Content-Disposition", "attachment; filename=att.csv")
 
+	w.Write([]byte("\xEF\xBB\xBF"))
 	cw := csv.NewWriter(w)
 	defer cw.Flush()
 
-	row := []string{"部门", "工号", "姓名"}
+	row := []string{"工号", "姓名", "部门"}
 	for i := 1; i <= dayCount; i++ {
-		row = append(row, fmt.Sprintf("%d号上班/加班", i))
+		row = append(row, fmt.Sprintf("%d号上班", i))
+		row = append(row, fmt.Sprintf("%d号加班", i))
 	}
 	row = append(row, "出勤天数", "加班小时", "加班天数")
 	cw.Write(row)
@@ -348,13 +371,93 @@ func handlerDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, u := range users {
-		r := []string{u.DeptName, u.Badge, u.Name}
+		r := []string{u.Badge, u.Name, u.DeptName}
 		for i := 1; i <= dayCount; i++ {
 			v := data[u.UserID][i]
-			r = append(r, v.Work+"/"+v.Over)
+			r = append(r, v.Work)
+			r = append(r, v.Over)
 		}
 		s := sum2[u.UserID]
 		r = append(r, format2f(s.PresentDays), formatFloat(s.OverHours), format2f(s.OverDays))
 		cw.Write(r)
 	}
+}
+
+func handlerDownloadXLS(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
+
+	now := time.Now()
+	y := now.Year()
+	m := int(now.Month())
+	if v := r.URL.Query().Get("year"); v != "" {
+		if iv, err := strconv.Atoi(v); err == nil {
+			y = iv
+		}
+	}
+	if v := r.URL.Query().Get("month"); v != "" {
+		if iv, err := strconv.Atoi(v); err == nil && iv >= 1 && iv <= 12 {
+			m = iv
+		}
+	}
+	deptParam := r.URL.Query().Get("dept")
+	var deptIDPtr *int
+	if deptParam != "" {
+		if dv, err := strconv.Atoi(deptParam); err == nil && dv > 0 {
+			deptIDPtr = &dv
+		}
+	}
+	q := r.URL.Query().Get("q")
+
+	firstDay := time.Date(y, time.Month(m), 1, 0, 0, 0, 0, time.Local)
+	lastDay := firstDay.AddDate(0, 1, -1)
+	dayCount := lastDay.Day()
+
+	users, _ := service.QueryUsersFiltered(ctx, deptIDPtr, q)
+	att, _ := service.QueryAtt(ctx, firstDay, lastDay)
+
+	data := make(map[int]map[int]DayValue)
+	sum := make(map[int]SumValue)
+	for _, row := range att {
+		uid := row.UserID
+		day := row.AttDate.Day()
+		if data[uid] == nil {
+			data[uid] = make(map[int]DayValue)
+		}
+		data[uid][day] = DayValue{
+			Work: formatFloat(row.Work),
+			Over: formatFloat(row.Over),
+		}
+		s := sum[uid]
+		if row.Required > 0 {
+			s.PresentDays += row.Work / row.Required
+			s.OverDays += row.Over / row.Required
+		}
+		s.OverHours += row.Over
+		sum[uid] = s
+	}
+
+	w.Header().Set("Content-Type", "application/vnd.ms-excel")
+	w.Header().Set("Content-Disposition", "attachment; filename=att.xls")
+
+	w.Write([]byte("\xEF\xBB\xBF"))
+	fmt.Fprint(w, "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>att</title></head><body>")
+	fmt.Fprint(w, "<table border=1>")
+	fmt.Fprint(w, "<tr><th>工号</th><th>姓名</th><th>部门</th>")
+	for i := 1; i <= dayCount; i++ {
+		fmt.Fprintf(w, "<th>%d号上班</th>", i)
+		fmt.Fprintf(w, "<th>%d号加班</th>", i)
+	}
+	fmt.Fprint(w, "<th>出勤天数</th><th>加班小时</th><th>加班天数</th></tr>")
+
+	for _, u := range users {
+		fmt.Fprintf(w, "<tr><td>%s</td><td>%s</td><td>%s</td>", u.Badge, u.Name, u.DeptName)
+		for i := 1; i <= dayCount; i++ {
+			v := data[u.UserID][i]
+			fmt.Fprintf(w, "<td>%s</td>", v.Work)
+			fmt.Fprintf(w, "<td>%s</td>", v.Over)
+		}
+		s := sum[u.UserID]
+		fmt.Fprintf(w, "<td>%s</td><td>%s</td><td>%s</td></tr>", format2f(s.PresentDays), formatFloat(s.OverHours), format2f(s.OverDays))
+	}
+	fmt.Fprint(w, "</table></body></html>")
 }
