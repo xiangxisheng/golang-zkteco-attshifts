@@ -14,10 +14,11 @@ type UserInfo struct {
 }
 
 type AttRow struct {
-	UserID  int
-	AttDate time.Time
-	Work    float64
-	Over    float64
+	UserID   int
+	AttDate  time.Time
+	Work     float64
+	Over     float64
+	Required float64
 }
 
 func QueryUsers(ctx context.Context) ([]UserInfo, error) {
@@ -48,7 +49,8 @@ func QueryAtt(ctx context.Context, start, end time.Time) ([]AttRow, error) {
 	sqlStr := `
     SELECT userid, attdate,
         SUM(realworkday) AS work,
-        SUM(overtime) AS [over]
+        SUM(overtime) AS [over],
+        SUM(workday) AS required
     FROM attshifts
     WHERE attdate BETWEEN @p1 AND @p2
       AND realworkday IS NOT NULL
@@ -64,7 +66,7 @@ func QueryAtt(ctx context.Context, start, end time.Time) ([]AttRow, error) {
 	list := []AttRow{}
 	for rows.Next() {
 		var a AttRow
-		rows.Scan(&a.UserID, &a.AttDate, &a.Work, &a.Over)
+		rows.Scan(&a.UserID, &a.AttDate, &a.Work, &a.Over, &a.Required)
 		list = append(list, a)
 	}
 	return list, nil
