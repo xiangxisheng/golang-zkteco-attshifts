@@ -1,10 +1,10 @@
 package service
 
 import (
-    "context"
-    "fmt"
-    "time"
-    "zkteco-attshifts/internal/db"
+	"context"
+	"fmt"
+	"time"
+	"zkteco-attshifts/internal/db"
 )
 
 type UserInfo struct {
@@ -21,6 +21,8 @@ type AttRow struct {
 	Work     float64
 	Over     float64
 	Required float64
+	Late     float64
+	Early    float64
 }
 
 func QueryUsers(ctx context.Context) ([]UserInfo, error) {
@@ -75,24 +77,24 @@ func QueryDepartments(ctx context.Context) ([]Department, error) {
 }
 
 func QueryUsersFiltered(ctx context.Context, deptID *int, q string) ([]UserInfo, error) {
-    sqlStr := `
+	sqlStr := `
     SELECT u.userid, u.badgenumber, u.name, ISNULL(d.deptname,''), u.defaultdeptid
     FROM userinfo u
     LEFT JOIN departments d ON u.defaultdeptid=d.deptid
     WHERE u.[deltag]=0
     `
-    args := []any{}
-    if deptID != nil {
-        sqlStr += fmt.Sprintf(" AND u.defaultdeptid=@p%d", len(args)+1)
-        args = append(args, *deptID)
-    }
-    if q != "" {
-        sqlStr += fmt.Sprintf(" AND (u.badgenumber LIKE @p%d OR u.name LIKE @p%d)", len(args)+1, len(args)+1)
-        args = append(args, "%"+q+"%")
-    }
-    sqlStr += ` ORDER BY d.deptid, u.badgenumber`
+	args := []any{}
+	if deptID != nil {
+		sqlStr += fmt.Sprintf(" AND u.defaultdeptid=@p%d", len(args)+1)
+		args = append(args, *deptID)
+	}
+	if q != "" {
+		sqlStr += fmt.Sprintf(" AND (u.badgenumber LIKE @p%d OR u.name LIKE @p%d)", len(args)+1, len(args)+1)
+		args = append(args, "%"+q+"%")
+	}
+	sqlStr += ` ORDER BY d.deptid, u.badgenumber`
 
-    rows, err := db.Get().QueryContext(ctx, sqlStr, args...)
+	rows, err := db.Get().QueryContext(ctx, sqlStr, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +114,9 @@ func QueryAtt(ctx context.Context, start, end time.Time) ([]AttRow, error) {
     SELECT userid, attdate,
         SUM(realworkday) AS work,
         SUM(overtime) AS [over],
-        SUM(workday) AS required
+        SUM(workday) AS required,
+        SUM(late) AS late,
+        SUM(early) AS early
     FROM attshifts
     WHERE attdate BETWEEN @p1 AND @p2
       AND realworkday IS NOT NULL
@@ -128,7 +132,7 @@ func QueryAtt(ctx context.Context, start, end time.Time) ([]AttRow, error) {
 	list := []AttRow{}
 	for rows.Next() {
 		var a AttRow
-		rows.Scan(&a.UserID, &a.AttDate, &a.Work, &a.Over, &a.Required)
+		rows.Scan(&a.UserID, &a.AttDate, &a.Work, &a.Over, &a.Required, &a.Late, &a.Early)
 		list = append(list, a)
 	}
 	return list, nil

@@ -19,6 +19,8 @@ type SumValue struct {
 	PresentDays float64
 	OverHours   float64
 	OverDays    float64
+	LateMins    float64
+	EarlyMins   float64
 }
 
 func formatFloat(f float64) string {
@@ -32,6 +34,9 @@ func formatFloat(f float64) string {
 }
 func format2f(f float64) string {
 	return strconv.FormatFloat(f, 'f', 2, 64)
+}
+func format0f(f float64) string {
+	return strconv.FormatFloat(f, 'f', 0, 64)
 }
 
 func wrapData(data map[int]map[int]DayValue) map[string]map[string]DayValue {
@@ -59,6 +64,8 @@ func wrapSumStr(data map[int]SumValue) map[string]map[string]string {
 			"PresentDays": format2f(v.PresentDays),
 			"OverHours":   formatFloat(v.OverHours),
 			"OverDays":    format2f(v.OverDays),
+			"LateMins":    format0f(v.LateMins),
+			"EarlyMins":   format0f(v.EarlyMins),
 		}
 	}
 	return out
@@ -133,6 +140,8 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
 			s.OverDays += row.Over / row.Required
 		}
 		s.OverHours += row.Over
+		s.LateMins += row.Late
+		s.EarlyMins += row.Early
 		sum[uid] = s
 	}
 
@@ -207,6 +216,8 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
     <th class="sum-col"><span>出勤</span><br><span>天数</span></th>
     <th class="sum-col"><span>加班</span><br><span>小时</span></th>
     <th class="sum-col"><span>加班</span><br><span>天数</span></th>
+    <th class="sum-col"><span>迟到</span><br><span>分钟</span></th>
+    <th class="sum-col"><span>早退</span><br><span>分钟</span></th>
     </tr>
 
     {{range .Users}}
@@ -227,6 +238,8 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
     <td class="sum-col">{{.PresentDays}}</td>
     <td class="sum-col">{{.OverHours}}</td>
     <td class="sum-col">{{.OverDays}}</td>
+    <td class="sum-col">{{.LateMins}}</td>
+    <td class="sum-col">{{.EarlyMins}}</td>
     {{end}}
     </tr>
     {{end}}
@@ -356,7 +369,7 @@ func handlerDownload(w http.ResponseWriter, r *http.Request) {
 		row = append(row, fmt.Sprintf("%d号上班", i))
 		row = append(row, fmt.Sprintf("%d号加班", i))
 	}
-	row = append(row, "出勤天数", "加班小时", "加班天数")
+	row = append(row, "出勤天数", "加班小时", "加班天数", "迟到分钟", "早退分钟")
 	cw.Write(row)
 
 	sum2 := make(map[int]SumValue)
@@ -367,6 +380,8 @@ func handlerDownload(w http.ResponseWriter, r *http.Request) {
 			s.OverDays += row.Over / row.Required
 		}
 		s.OverHours += row.Over
+		s.LateMins += row.Late
+		s.EarlyMins += row.Early
 		sum2[row.UserID] = s
 	}
 
@@ -378,7 +393,7 @@ func handlerDownload(w http.ResponseWriter, r *http.Request) {
 			r = append(r, v.Over)
 		}
 		s := sum2[u.UserID]
-		r = append(r, format2f(s.PresentDays), formatFloat(s.OverHours), format2f(s.OverDays))
+		r = append(r, format2f(s.PresentDays), formatFloat(s.OverHours), format2f(s.OverDays), format0f(s.LateMins), format0f(s.EarlyMins))
 		cw.Write(r)
 	}
 }
@@ -433,6 +448,8 @@ func handlerDownloadXLS(w http.ResponseWriter, r *http.Request) {
 			s.OverDays += row.Over / row.Required
 		}
 		s.OverHours += row.Over
+		s.LateMins += row.Late
+		s.EarlyMins += row.Early
 		sum[uid] = s
 	}
 
@@ -447,7 +464,7 @@ func handlerDownloadXLS(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "<th>%d号上班</th>", i)
 		fmt.Fprintf(w, "<th>%d号加班</th>", i)
 	}
-	fmt.Fprint(w, "<th>出勤天数</th><th>加班小时</th><th>加班天数</th></tr>")
+	fmt.Fprint(w, "<th>出勤天数</th><th>加班小时</th><th>加班天数</th><th>迟到分钟</th><th>早退分钟</th></tr>")
 
 	for _, u := range users {
 		fmt.Fprintf(w, "<tr><td>%s</td><td>%s</td><td>%s</td>", u.Badge, u.Name, u.DeptName)
@@ -457,7 +474,7 @@ func handlerDownloadXLS(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "<td>%s</td>", v.Over)
 		}
 		s := sum[u.UserID]
-		fmt.Fprintf(w, "<td>%s</td><td>%s</td><td>%s</td></tr>", format2f(s.PresentDays), formatFloat(s.OverHours), format2f(s.OverDays))
+		fmt.Fprintf(w, "<td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>", format2f(s.PresentDays), formatFloat(s.OverHours), format2f(s.OverDays), format0f(s.LateMins), format0f(s.EarlyMins))
 	}
 	fmt.Fprint(w, "</table></body></html>")
 }
