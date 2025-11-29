@@ -28,35 +28,40 @@ func renderGridTableHTML(m ReportModel, weekend map[int]bool, weekNames map[int]
     var b strings.Builder
     b.WriteString("<table class=\"grid\">\n")
     b.WriteString("<tr align=\"center\">\n")
-    for _, d := range identityHeaderDefs() {
-        if d.Style != "" {
-            fmt.Fprintf(&b, "<th rowspan=\"2\" style=\"%s\">%s</th>", html.EscapeString(d.Style), html.EscapeString(d.Title))
-        } else {
-            fmt.Fprintf(&b, "<th rowspan=\"2\">%s</th>", html.EscapeString(d.Title))
-        }
+    // compute sticky left offsets for identity columns
+    lefts := []int{}
+    sum := 0
+    defs := identityHeaderDefs()
+    for _, d := range defs {
+        lefts = append(lefts, sum)
+        sum += d.Width
+    }
+    for i, d := range defs {
+        style := fmt.Sprintf("min-width:%dpx;width:%dpx;position:sticky;left:%dpx;top:0;z-index:3;background:#f1f5f9", d.Width, d.Width, lefts[i])
+        fmt.Fprintf(&b, "<th rowspan=\"2\" style=\"%s\">%s</th>", style, html.EscapeString(d.Title))
     }
     for _, day := range m.Days {
         wk := ""
         if weekend[day] {
             wk = "weekend"
         }
-        fmt.Fprintf(&b, "<th class=\"%s\" colspan=\"2\">%d<br><span class=\"wk\">%s</span></th>", wk, day, weekNames[day])
+        fmt.Fprintf(&b, "<th class=\"%s\" colspan=\"2\" style=\"position:sticky;top:0;z-index:2;background:#f1f5f9\">%d<br><span class=\"wk\">%s</span></th>", wk, day, weekNames[day])
     }
     otherCols, overtimeCols, leaveCols := groupSumColumns(m)
     for _, c := range otherCols {
-        fmt.Fprintf(&b, "<th class=\"sum-col\" rowspan=\"2\">%s</th>", html.EscapeString(c.Title))
+        fmt.Fprintf(&b, "<th class=\"sum-col\" rowspan=\"2\" style=\"position:sticky;top:0;z-index:2;background:#f1f5f9\">%s</th>", html.EscapeString(c.Title))
     }
     if len(overtimeCols) > 0 {
-        fmt.Fprintf(&b, "<th class=\"sum-col\" colspan=\"%d\">加班</th>", len(overtimeCols))
+        fmt.Fprintf(&b, "<th class=\"sum-col\" colspan=\"%d\" style=\"position:sticky;top:0;z-index:2;background:#f1f5f9\">加班</th>", len(overtimeCols))
     }
     if len(leaveCols) > 0 {
-        fmt.Fprintf(&b, "<th class=\"sum-col\" colspan=\"%d\">请假</th>", len(leaveCols))
+        fmt.Fprintf(&b, "<th class=\"sum-col\" colspan=\"%d\" style=\"position:sticky;top:0;z-index:2;background:#f1f5f9\">请假</th>", len(leaveCols))
     }
     b.WriteString("</tr>\n")
 
     b.WriteString("<tr align=\"center\">\n")
     for range m.Days {
-        b.WriteString("<th>上</th><th>加</th>")
+        b.WriteString("<th style=\"position:sticky;top:30px;z-index:2;background:#f1f5f9\">上</th><th style=\"position:sticky;top:30px;z-index:2;background:#f1f5f9\">加</th>")
     }
     for _, c := range overtimeCols {
         fmt.Fprintf(&b, "<th class=\"sum-col\">%s</th>", html.EscapeString(c.Title))
@@ -68,9 +73,13 @@ func renderGridTableHTML(m ReportModel, weekend map[int]bool, weekNames map[int]
 
     for _, u := range m.Users {
         b.WriteString("<tr align=\"center\">")
-        fmt.Fprintf(&b, "<td>%s</td>", html.EscapeString(u.Badge))
-        fmt.Fprintf(&b, "<td>%s</td>", html.EscapeString(u.Name))
-        fmt.Fprintf(&b, "<td>%s</td>", html.EscapeString(u.DeptName))
+        // sticky left identity cells
+        for i, d := range defs {
+            var val string
+            if i == 0 { val = u.Badge } else if i == 1 { val = u.Name } else { val = u.DeptName }
+            style := fmt.Sprintf("min-width:%dpx;width:%dpx;position:sticky;left:%dpx;z-index:1;background:#fff", d.Width, d.Width, lefts[i])
+            fmt.Fprintf(&b, "<td style=\"%s\">%s</td>", style, html.EscapeString(val))
+        }
         for _, d := range m.Days {
             v := m.Daily[u.UserID][d]
             wk := ""

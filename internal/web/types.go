@@ -46,4 +46,5 @@ type Column struct {
 type HeaderDef struct {
     Title string
     Style string
+    Width int
 }

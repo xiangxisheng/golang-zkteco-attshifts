@@ -4,9 +4,9 @@ import "fmt"
 
 func identityHeaderDefs() []HeaderDef {
 	return []HeaderDef{
-		{Title: "工号", Style: "min-width: 60px; width: 60px;"},
-		{Title: "姓名", Style: "min-width: 100px; width: 100px;"},
-		{Title: "部门", Style: "min-width: 70px; width: 70px;"},
+		{Title: "工号", Width: 60},
+		{Title: "姓名", Width: 100},
+		{Title: "部门", Width: 70},
 	}
 }
 
