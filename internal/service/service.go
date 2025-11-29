@@ -16,13 +16,16 @@ type UserInfo struct {
 }
 
 type AttRow struct {
-	UserID   int
-	AttDate  time.Time
-	Work     float64
-	Over     float64
-	Required float64
-	Late     float64
-	Early    float64
+    UserID   int
+    AttDate  time.Time
+    Work     float64
+    Over     float64
+    Required float64
+    Late     float64
+    Early    float64
+    NormalOT  float64
+    WeekendOT float64
+    HolidayOT float64
 }
 
 func QueryUsers(ctx context.Context) ([]UserInfo, error) {
@@ -110,13 +113,16 @@ func QueryUsersFiltered(ctx context.Context, deptID *int, q string) ([]UserInfo,
 }
 
 func QueryAtt(ctx context.Context, start, end time.Time) ([]AttRow, error) {
-	sqlStr := `
+    sqlStr := `
     SELECT userid, attdate,
         SUM(ISNULL(realworkday, 0)) AS work,
         SUM(ISNULL(overtime, 0)) AS [over],
         SUM(ISNULL(workday, 0)) AS required,
         SUM(ISNULL(late, 0)) AS late,
-        SUM(ISNULL(early, 0)) AS early
+        SUM(ISNULL(early, 0)) AS early,
+        SUM(ISNULL(sspedaynormalot, 0)) AS normal_ot,
+        SUM(ISNULL(sspedayweekendot, 0)) AS weekend_ot,
+        SUM(ISNULL(sspedayholidayot, 0)) AS holiday_ot
     FROM attshifts
     WHERE attdate BETWEEN @p1 AND @p2
     GROUP BY userid, attdate
@@ -129,12 +135,12 @@ func QueryAtt(ctx context.Context, start, end time.Time) ([]AttRow, error) {
 	defer rows.Close()
 
 	list := []AttRow{}
-	for rows.Next() {
-		var a AttRow
-		rows.Scan(&a.UserID, &a.AttDate, &a.Work, &a.Over, &a.Required, &a.Late, &a.Early)
-		list = append(list, a)
-	}
-	return list, nil
+    for rows.Next() {
+        var a AttRow
+        rows.Scan(&a.UserID, &a.AttDate, &a.Work, &a.Over, &a.Required, &a.Late, &a.Early, &a.NormalOT, &a.WeekendOT, &a.HolidayOT)
+        list = append(list, a)
+    }
+    return list, nil
 }
 
 type LeaveSymbolRow struct {

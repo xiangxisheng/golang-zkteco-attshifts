@@ -18,12 +18,15 @@ type DayValue struct {
 	Over string
 }
 type SumValue struct {
-	PresentDays float64
-	OverHours   float64
-	OverDays    float64
-	LateMins    float64
-	EarlyMins   float64
-	LeaveHours  float64
+    PresentDays float64
+    OverHours   float64
+    OverDays    float64
+    LateMins    float64
+    EarlyMins   float64
+    LeaveHours  float64
+    NormalOT    float64
+    WeekendOT   float64
+    HolidayOT   float64
 }
 
 func formatFloat(f float64) string {
@@ -81,18 +84,21 @@ func wrapSum(data map[int]SumValue) map[string]SumValue {
 	return out
 }
 func wrapSumStr(data map[int]SumValue) map[string]map[string]string {
-	out := make(map[string]map[string]string)
-	for uid, v := range data {
-		out[strconv.Itoa(uid)] = map[string]string{
-			"PresentDays": format2f(v.PresentDays),
-			"OverHours":   formatFloat(v.OverHours),
-			"OverDays":    format0f(v.OverDays),
-			"LateMins":    format0f(v.LateMins),
-			"EarlyMins":   format0f(v.EarlyMins),
-			"LeaveHours":  format0f(v.LeaveHours),
-		}
-	}
-	return out
+    out := make(map[string]map[string]string)
+    for uid, v := range data {
+        out[strconv.Itoa(uid)] = map[string]string{
+            "PresentDays": format2f(v.PresentDays),
+            "OverHours":   formatFloat(v.OverHours),
+            "OverDays":    format0f(v.OverDays),
+            "LateMins":    format0f(v.LateMins),
+            "EarlyMins":   format0f(v.EarlyMins),
+            "LeaveHours":  format0f(v.LeaveHours),
+            "NormalOT":    formatFloat(v.NormalOT),
+            "WeekendOT":   formatFloat(v.WeekendOT),
+            "HolidayOT":   formatFloat(v.HolidayOT),
+        }
+    }
+    return out
 }
 
 func RegisterRoutes() {
@@ -167,10 +173,13 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
 		if row.Over > 0 {
 			s.OverDays += 1
 		}
-		s.OverHours += row.Over
-		s.LateMins += row.Late
-		s.EarlyMins += row.Early
-		sum[uid] = s
+        s.OverHours += row.Over
+        s.LateMins += row.Late
+        s.EarlyMins += row.Early
+        s.NormalOT += row.NormalOT
+        s.WeekendOT += row.WeekendOT
+        s.HolidayOT += row.HolidayOT
+        sum[uid] = s
 	}
 
 	tpl := `
@@ -245,6 +254,9 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
     <th class="sum-col"><span>出勤</span><br><span>天数</span></th>
     <th class="sum-col"><span>加班</span><br><span>小时</span></th>
     <th class="sum-col"><span>加班</span><br><span>天数</span></th>
+    <th class="sum-col"><span>普通</span><br><span>加班</span></th>
+    <th class="sum-col"><span>周末</span><br><span>加班</span></th>
+    <th class="sum-col"><span>节日</span><br><span>加班</span></th>
     <th class="sum-col"><span>迟到</span><br><span>分钟</span></th>
     <th class="sum-col"><span>早退</span><br><span>分钟</span></th>
     <th class="sum-col"><span>请假</span><br><span>小时</span></th>
@@ -268,6 +280,9 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
     <td class="sum-col">{{.PresentDays}}</td>
     <td class="sum-col">{{.OverHours}}</td>
     <td class="sum-col">{{.OverDays}}</td>
+    <td class="sum-col">{{.NormalOT}}</td>
+    <td class="sum-col">{{.WeekendOT}}</td>
+    <td class="sum-col">{{.HolidayOT}}</td>
     <td class="sum-col">{{.LateMins}}</td>
     <td class="sum-col">{{.EarlyMins}}</td>
     <td class="sum-col">{{.LeaveHours}}</td>
@@ -407,12 +422,12 @@ func handlerDownload(w http.ResponseWriter, r *http.Request) {
 	cw := csv.NewWriter(w)
 	defer cw.Flush()
 
-	row := []string{"工号", "姓名", "部门"}
+    row := []string{"工号", "姓名", "部门"}
 	for i := 1; i <= dayCount; i++ {
 		row = append(row, fmt.Sprintf("%d号上班", i))
 		row = append(row, fmt.Sprintf("%d号加班", i))
 	}
-	row = append(row, "出勤天数", "加班小时", "加班天数", "迟到分钟", "早退分钟", "请假小时")
+    row = append(row, "出勤天数", "加班小时", "加班天数", "普通加班", "周末加班", "节日加班", "迟到分钟", "早退分钟", "请假小时")
 	cw.Write(row)
 
 	sum2 := make(map[int]SumValue)
@@ -449,10 +464,10 @@ func handlerDownload(w http.ResponseWriter, r *http.Request) {
 			r = append(r, v.Work)
 			r = append(r, v.Over)
 		}
-		s := sum2[u.UserID]
-		r = append(r, format2f(s.PresentDays), formatFloat(s.OverHours), format0f(s.OverDays), format0f(s.LateMins), format0f(s.EarlyMins), format0f(s.LeaveHours))
-		cw.Write(r)
-	}
+        s := sum2[u.UserID]
+        r = append(r, format2f(s.PresentDays), formatFloat(s.OverHours), format0f(s.OverDays), formatFloat(s.NormalOT), formatFloat(s.WeekendOT), formatFloat(s.HolidayOT), format0f(s.LateMins), format0f(s.EarlyMins), format0f(s.LeaveHours))
+        cw.Write(r)
+    }
 }
 
 func handlerDownloadXLS(w http.ResponseWriter, r *http.Request) {
@@ -535,7 +550,7 @@ func handlerDownloadXLS(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "<th>%d号上班</th>", i)
 		fmt.Fprintf(w, "<th>%d号加班</th>", i)
 	}
-	fmt.Fprint(w, "<th>出勤天数</th><th>加班小时</th><th>加班天数</th><th>迟到分钟</th><th>早退分钟</th><th>请假小时</th></tr>")
+    fmt.Fprint(w, "<th>出勤天数</th><th>加班小时</th><th>加班天数</th><th>普通加班</th><th>周末加班</th><th>节日加班</th><th>迟到分钟</th><th>早退分钟</th><th>请假小时</th></tr>")
 
 	for _, u := range users {
 		fmt.Fprintf(w, "<tr><td>%s</td><td>%s</td><td>%s</td>", u.Badge, u.Name, u.DeptName)
@@ -544,8 +559,8 @@ func handlerDownloadXLS(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "<td>%s</td>", v.Work)
 			fmt.Fprintf(w, "<td>%s</td>", v.Over)
 		}
-		s := sum[u.UserID]
-		fmt.Fprintf(w, "<td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>", format2f(s.PresentDays), formatFloat(s.OverHours), format0f(s.OverDays), format0f(s.LateMins), format0f(s.EarlyMins), format0f(s.LeaveHours))
+        s := sum[u.UserID]
+        fmt.Fprintf(w, "<td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>", format2f(s.PresentDays), formatFloat(s.OverHours), format0f(s.OverDays), formatFloat(s.NormalOT), formatFloat(s.WeekendOT), formatFloat(s.HolidayOT), format0f(s.LateMins), format0f(s.EarlyMins), format0f(s.LeaveHours))
 	}
 	fmt.Fprint(w, "</table></body></html>")
 }
