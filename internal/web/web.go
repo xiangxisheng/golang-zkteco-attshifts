@@ -1,14 +1,16 @@
 package web
 
 import (
-	"context"
-	"encoding/csv"
-	"fmt"
-	"html/template"
-	"net/http"
-	"strconv"
-	"time"
-	"zkteco-attshifts/internal/service"
+    "context"
+    "encoding/csv"
+    "fmt"
+    "html/template"
+    "net/http"
+    "os"
+    "path/filepath"
+    "strconv"
+    "time"
+    "zkteco-attshifts/internal/service"
 )
 
 type DayValue struct {
@@ -94,10 +96,12 @@ func wrapSumStr(data map[int]SumValue) map[string]map[string]string {
 }
 
 func RegisterRoutes() {
-	http.HandleFunc("/", handlerIndex)
-	http.HandleFunc("/download", handlerDownload)
-	http.HandleFunc("/download.xls", handlerDownloadXLS)
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("D:\\data\\code\\golang\\golang-zkteco-attshifts\\zkteco-attshifts\\wwwroot\\static"))))
+    http.HandleFunc("/", handlerIndex)
+    http.HandleFunc("/download", handlerDownload)
+    http.HandleFunc("/download.xls", handlerDownloadXLS)
+    exe, _ := os.Executable()
+    staticDir := filepath.Join(filepath.Dir(exe), "wwwroot", "static")
+    http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
 }
 
 func handlerIndex(w http.ResponseWriter, r *http.Request) {
@@ -228,6 +232,7 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
       </div>
     </header>
     <main>
+    <div id="loading" class="modal hidden"><div class="modal-content"><span>处理中...</span></div></div>
     <table class="grid">
     <tr align="center">
     <th style="min-width: 60px; width: 60px;">工号</th>

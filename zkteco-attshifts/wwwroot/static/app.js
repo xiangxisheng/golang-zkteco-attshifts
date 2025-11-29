@@ -4,6 +4,8 @@ document.addEventListener('DOMContentLoaded',()=>{
   const month=form?.querySelector('select[name="month"]')
   ;[year,month].forEach(el=>el&&el.addEventListener('change',()=>form.submit()))
 
+  const loading=document.getElementById('loading')
+
   const dlForm=document.getElementById('dl-form')
   const openBtn=document.getElementById('open-dl')
   const modal=document.getElementById('dl-modal')
@@ -23,5 +25,6 @@ document.addEventListener('DOMContentLoaded',()=>{
     const fmt=dlForm.querySelector('select[name="fmt"]').value
     dlForm.action=fmt==='xls'?'/download.xls':'/download'
     modal.classList.add('hidden')
+    loading?.classList.remove('hidden')
   })
 })

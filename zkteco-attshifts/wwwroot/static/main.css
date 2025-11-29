@@ -27,3 +27,4 @@ main{padding:16px}
 .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
 .modal-actions .primary{background:var(--accent);color:#ffffff;border:0;padding:6px 12px;border-radius:6px}
 .modal select{background:#fff;color:var(--text);border:1px solid var(--border);padding:6px 10px;border-radius:6px}
+.modal span{color:var(--text)}
