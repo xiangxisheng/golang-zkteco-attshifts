@@ -112,14 +112,13 @@ func QueryUsersFiltered(ctx context.Context, deptID *int, q string) ([]UserInfo,
 func QueryAtt(ctx context.Context, start, end time.Time) ([]AttRow, error) {
 	sqlStr := `
     SELECT userid, attdate,
-        SUM(realworkday) AS work,
-        SUM(overtime) AS [over],
-        SUM(workday) AS required,
-        SUM(late) AS late,
-        SUM(early) AS early
+        SUM(ISNULL(realworkday, 0)) AS work,
+        SUM(ISNULL(overtime, 0)) AS [over],
+        SUM(ISNULL(workday, 0)) AS required,
+        SUM(ISNULL(late, 0)) AS late,
+        SUM(ISNULL(early, 0)) AS early
     FROM attshifts
     WHERE attdate BETWEEN @p1 AND @p2
-      AND realworkday IS NOT NULL
     GROUP BY userid, attdate
     `
 
@@ -134,6 +133,35 @@ func QueryAtt(ctx context.Context, start, end time.Time) ([]AttRow, error) {
 		var a AttRow
 		rows.Scan(&a.UserID, &a.AttDate, &a.Work, &a.Over, &a.Required, &a.Late, &a.Early)
 		list = append(list, a)
+	}
+	return list, nil
+}
+
+type LeaveSymbolRow struct {
+	UserID int
+	Symbol string
+}
+
+func QueryLeaveSymbols(ctx context.Context, start, end time.Time) ([]LeaveSymbolRow, error) {
+	sqlStr := `
+    SELECT userid, symbol
+    FROM attshifts
+    WHERE attdate BETWEEN @p1 AND @p2
+      AND exceptionid IS NOT NULL
+      AND symbol IS NOT NULL
+    `
+
+	rows, err := db.Get().QueryContext(ctx, sqlStr, start, end)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	list := []LeaveSymbolRow{}
+	for rows.Next() {
+		var r LeaveSymbolRow
+		rows.Scan(&r.UserID, &r.Symbol)
+		list = append(list, r)
 	}
 	return list, nil
 }
