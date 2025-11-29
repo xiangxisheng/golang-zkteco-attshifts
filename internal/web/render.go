@@ -16,7 +16,7 @@ func renderCSVModel(w http.ResponseWriter, m ReportModel) {
 
     row := append([]string{}, identityHeaders()...)
     row = append(row, dailyHeaderTitles(m)...)
-    for _, c := range visibleColumns(m) {
+    for _, c := range orderedVisibleColumns(m) {
         row = append(row, c.Title)
     }
     cw.Write(row)
@@ -25,7 +25,7 @@ func renderCSVModel(w http.ResponseWriter, m ReportModel) {
         r := append([]string{}, []string{u.Badge, u.Name, u.DeptName}...)
         r = append(r, dailyRowValues(m, u.UserID)...)
         s := m.Sum[u.UserID]
-        for _, c := range visibleColumns(m) {
+        for _, c := range orderedVisibleColumns(m) {
             r = append(r, c.Value(s))
         }
         cw.Write(r)
@@ -45,7 +45,7 @@ func renderXLSModel(w http.ResponseWriter, m ReportModel) {
     for _, h := range dailyHeaderTitles(m) {
         fmt.Fprintf(w, "<th>%s</th>", h)
     }
-    for _, c := range visibleColumns(m) {
+    for _, c := range orderedVisibleColumns(m) {
         fmt.Fprintf(w, "<th>%s</th>", c.Title)
     }
     fmt.Fprint(w, "</tr>")
@@ -59,7 +59,7 @@ func renderXLSModel(w http.ResponseWriter, m ReportModel) {
             fmt.Fprintf(w, "<td>%s</td>", v)
         }
         s := m.Sum[u.UserID]
-        for _, c := range visibleColumns(m) {
+        for _, c := range orderedVisibleColumns(m) {
             fmt.Fprintf(w, "<td>%s</td>", c.Value(s))
         }
         fmt.Fprint(w, "</tr>")
@@ -75,4 +75,3 @@ func renderHTMLModel(w http.ResponseWriter, m ReportModel) {
     io.WriteString(w, renderGridTableHTML(m, weekend, weekNames))
     io.WriteString(w, "</body></html>")
 }
-
