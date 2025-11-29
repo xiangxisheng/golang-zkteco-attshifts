@@ -3,12 +3,14 @@ package web
 import (
     "context"
     "html/template"
+    "io"
     "net/http"
     "os"
     "path/filepath"
     "strconv"
     "time"
     "zkteco-attshifts/internal/config"
+    "zkteco-attshifts/internal/db"
     "zkteco-attshifts/internal/service"
 )
 
@@ -47,6 +49,18 @@ func RegisterRoutes(cfg config.Config) {
 
 func handlerIndex(w http.ResponseWriter, r *http.Request) {
     ctx := context.Background()
+    if !db.IsReady() {
+        w.Header().Set("Content-Type", "text/html; charset=utf-8")
+        err := db.InitError()
+        msg := "数据库未连接"
+        if err != nil { msg = err.Error() }
+        io.WriteString(w, "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>错误</title><style>body{font-family:sans-serif;padding:24px}code{background:#f1f5f9;padding:4px 8px;border-radius:4px}</style></head><body>")
+        io.WriteString(w, "<h1>启动错误</h1>")
+        io.WriteString(w, "<p>无法连接数据库，请检查配置文件 <code>config.json</code> 或数据库服务。</p>")
+        io.WriteString(w, "<p><strong>错误信息：</strong>"+template.HTMLEscapeString(msg)+"</p>")
+        io.WriteString(w, "</body></html>")
+        return
+    }
     mModel, err := buildModel(ctx, r)
     if err != nil {
         http.Error(w, err.Error(), 500)
@@ -197,18 +211,21 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
 
 func handlerDownload(w http.ResponseWriter, r *http.Request) {
     ctx := context.Background()
+    if !db.IsReady() { http.Error(w, "数据库未连接", 500); return }
     mModel, _ := buildModel(ctx, r)
     renderCSVModel(w, mModel)
 }
 
 func handlerDownloadXLS(w http.ResponseWriter, r *http.Request) {
     ctx := context.Background()
+    if !db.IsReady() { http.Error(w, "数据库未连接", 500); return }
     mModel, _ := buildModel(ctx, r)
     renderXLSModel(w, mModel)
 }
 
 func handlerDownloadHTML(w http.ResponseWriter, r *http.Request) {
     ctx := context.Background()
+    if !db.IsReady() { http.Error(w, "数据库未连接", 500); return }
     mModel, _ := buildModel(ctx, r)
     renderHTMLModel(w, mModel)
 }
