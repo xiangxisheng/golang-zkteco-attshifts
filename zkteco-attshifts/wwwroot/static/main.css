@@ -4,6 +4,7 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 system-ui,-ap
 .topbar{display:flex;gap:16px;align-items:center;justify-content:space-between;padding:16px;border-bottom:1px solid var(--border);background:var(--panel)}
 .topbar h1{margin:0;font-size:18px}
 .ym-picker{display:flex;gap:8px;align-items:center}
+.col-picker{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-left:12px}
 .ym-picker select,.ym-picker button{background:#ffffff;color:var(--text);border:1px solid var(--border);padding:6px 10px;border-radius:6px}
 .ym-picker button{background:var(--accent);color:#ffffff;border:0}
 .download{color:#ffffff;background:var(--accent);padding:6px 10px;border-radius:6px;text-decoration:none}

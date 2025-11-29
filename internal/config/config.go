@@ -7,12 +7,13 @@ import (
 )
 
 type Config struct {
-	Server   string `json:"server"`
-	Port     int    `json:"port"`
-	User     string `json:"user"`
-	Password string `json:"password"`
-	Database string `json:"database"`
-	HTTPPort int    `json:"http_port"`
+    Server   string `json:"server"`
+    Port     int    `json:"port"`
+    User     string `json:"user"`
+    Password string `json:"password"`
+    Database string `json:"database"`
+    HTTPPort int    `json:"http_port"`
+    WWWRoot  string `json:"wwwroot"`
 }
 
 func Load(configPath string) (Config, error) {

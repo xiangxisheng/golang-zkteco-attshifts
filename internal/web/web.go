@@ -1,16 +1,17 @@
 package web
 
 import (
-    "context"
-    "encoding/csv"
-    "fmt"
-    "html/template"
-    "net/http"
-    "os"
-    "path/filepath"
-    "strconv"
-    "time"
-    "zkteco-attshifts/internal/service"
+	"context"
+	"encoding/csv"
+	"fmt"
+	"html/template"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"time"
+	"zkteco-attshifts/internal/config"
+	"zkteco-attshifts/internal/service"
 )
 
 type DayValue struct {
@@ -18,15 +19,15 @@ type DayValue struct {
 	Over string
 }
 type SumValue struct {
-    PresentDays float64
-    OverHours   float64
-    OverDays    float64
-    LateMins    float64
-    EarlyMins   float64
-    LeaveHours  float64
-    NormalOT    float64
-    WeekendOT   float64
-    HolidayOT   float64
+	PresentDays float64
+	OverHours   float64
+	OverDays    float64
+	LateMins    float64
+	EarlyMins   float64
+	LeaveHours  float64
+	NormalOT    float64
+	WeekendOT   float64
+	HolidayOT   float64
 }
 
 func formatFloat(f float64) string {
@@ -84,30 +85,53 @@ func wrapSum(data map[int]SumValue) map[string]SumValue {
 	return out
 }
 func wrapSumStr(data map[int]SumValue) map[string]map[string]string {
-    out := make(map[string]map[string]string)
-    for uid, v := range data {
-        out[strconv.Itoa(uid)] = map[string]string{
-            "PresentDays": format2f(v.PresentDays),
-            "OverHours":   formatFloat(v.OverHours),
-            "OverDays":    format0f(v.OverDays),
-            "LateMins":    format0f(v.LateMins),
-            "EarlyMins":   format0f(v.EarlyMins),
-            "LeaveHours":  format0f(v.LeaveHours),
-            "NormalOT":    formatFloat(v.NormalOT),
-            "WeekendOT":   formatFloat(v.WeekendOT),
-            "HolidayOT":   formatFloat(v.HolidayOT),
-        }
-    }
-    return out
+	out := make(map[string]map[string]string)
+	for uid, v := range data {
+		out[strconv.Itoa(uid)] = map[string]string{
+			"PresentDays": format2f(v.PresentDays),
+			"OverHours":   formatFloat(v.OverHours),
+			"OverDays":    format0f(v.OverDays),
+			"LateMins":    format0f(v.LateMins),
+			"EarlyMins":   format0f(v.EarlyMins),
+			"LeaveHours":  format0f(v.LeaveHours),
+			"NormalOT":    formatFloat(v.NormalOT),
+			"WeekendOT":   formatFloat(v.WeekendOT),
+			"HolidayOT":   formatFloat(v.HolidayOT),
+		}
+	}
+	return out
 }
 
-func RegisterRoutes() {
-    http.HandleFunc("/", handlerIndex)
-    http.HandleFunc("/download", handlerDownload)
-    http.HandleFunc("/download.xls", handlerDownloadXLS)
-    exe, _ := os.Executable()
-    staticDir := filepath.Join(filepath.Dir(exe), "wwwroot", "static")
-    http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
+func resolveWWWRoot(cfg config.Config) string {
+	base := cfg.WWWRoot
+	if base == "" {
+		base = "wwwroot"
+	}
+	if filepath.IsAbs(base) {
+		return base
+	}
+	wd, _ := os.Getwd()
+	p1 := filepath.Join(wd, base)
+	if st, err := os.Stat(p1); err == nil && st.IsDir() {
+		return p1
+	}
+	exe, _ := os.Executable()
+	p2 := filepath.Join(filepath.Dir(exe), base)
+	return p2
+}
+
+func RegisterRoutes(cfg config.Config) {
+	root := resolveWWWRoot(cfg)
+	fsRoot := http.FileServer(http.Dir(root))
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			handlerIndex(w, r)
+			return
+		}
+		fsRoot.ServeHTTP(w, r)
+	})
+	http.HandleFunc("/download", handlerDownload)
+	http.HandleFunc("/download.xls", handlerDownloadXLS)
 }
 
 func handlerIndex(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +163,27 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	q := r.URL.Query().Get("q")
+
+	cols := r.URL.Query()["cols"]
+	show := map[string]bool{
+		"present":    true,
+		"overhours":  false,
+		"overdays":   true,
+		"normalot":   true,
+		"weekendot":  true,
+		"holidayot":  true,
+		"latemins":   true,
+		"earlymins":  true,
+		"leavehours": true,
+	}
+	if len(cols) > 0 {
+		for k := range show {
+			show[k] = false
+		}
+		for _, c := range cols {
+			show[c] = true
+		}
+	}
 
 	users, err := service.QueryUsersFiltered(ctx, deptIDPtr, q)
 	if err != nil {
@@ -173,13 +218,13 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
 		if row.Over > 0 {
 			s.OverDays += 1
 		}
-        s.OverHours += row.Over
-        s.LateMins += row.Late
-        s.EarlyMins += row.Early
-        s.NormalOT += row.NormalOT
-        s.WeekendOT += row.WeekendOT
-        s.HolidayOT += row.HolidayOT
-        sum[uid] = s
+		s.OverHours += row.Over
+		s.LateMins += row.Late
+		s.EarlyMins += row.Early
+		s.NormalOT += row.NormalOT
+		s.WeekendOT += row.WeekendOT
+		s.HolidayOT += row.HolidayOT
+		sum[uid] = s
 	}
 
 	tpl := `
@@ -217,7 +262,34 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
         <label>搜索</label>
         <input type="text" name="q" value="{{.Query}}" placeholder="工号/姓名" />
         <button type="submit">切换</button>
+        <button type="button" id="open-cols">列选择</button>
       </form>
+      <div id="cols-modal" class="modal hidden">
+        <div class="modal-content">
+          <h2>选择要显示的列</h2>
+          <form id="cols-form" method="get" action="/">
+            <input type="hidden" name="year" value="{{.Year}}" />
+            <input type="hidden" name="month" value="{{.Month}}" />
+            <input type="hidden" name="dept" value="{{.Dept}}" />
+            <input type="hidden" name="q" value="{{.Query}}" />
+            <div class="col-picker">
+              <label><input type="checkbox" name="cols" value="present" {{if index $.SelCols "present"}}checked{{end}}>出勤天数</label>
+              <label><input type="checkbox" name="cols" value="overhours" {{if index $.SelCols "overhours"}}checked{{end}}>加班小时</label>
+              <label><input type="checkbox" name="cols" value="overdays" {{if index $.SelCols "overdays"}}checked{{end}}>加班天数</label>
+              <label><input type="checkbox" name="cols" value="normalot" {{if index $.SelCols "normalot"}}checked{{end}}>普通加班</label>
+              <label><input type="checkbox" name="cols" value="weekendot" {{if index $.SelCols "weekendot"}}checked{{end}}>周末加班</label>
+              <label><input type="checkbox" name="cols" value="holidayot" {{if index $.SelCols "holidayot"}}checked{{end}}>节日加班</label>
+              <label><input type="checkbox" name="cols" value="latemins" {{if index $.SelCols "latemins"}}checked{{end}}>迟到分钟</label>
+              <label><input type="checkbox" name="cols" value="earlymins" {{if index $.SelCols "earlymins"}}checked{{end}}>早退分钟</label>
+              <label><input type="checkbox" name="cols" value="leavehours" {{if index $.SelCols "leavehours"}}checked{{end}}>请假小时</label>
+            </div>
+            <div class="modal-actions">
+              <button type="submit" class="primary">应用</button>
+              <button type="button" id="close-cols">取消</button>
+            </div>
+          </form>
+        </div>
+      </div>
       <button id="open-dl" class="download">下载</button>
       <div id="dl-modal" class="modal hidden">
         <div class="modal-content">
@@ -227,10 +299,11 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
             <input type="hidden" name="month" value="{{.Month}}" />
             <input type="hidden" name="dept" value="{{.Dept}}" />
             <input type="hidden" name="q" value="{{.Query}}" />
+            {{range $k,$v := .SelCols}}{{if $v}}<input type="hidden" name="cols" value="{{$k}}" />{{end}}{{end}}
             <label>格式</label>
             <select name="fmt">
-              <option value="csv" selected>CSV</option>
-              <option value="xls">Excel</option>
+              <option value="csv" selected>CSV（UTF-8）</option>
+              <option value="xls">Excel（兼容中文）</option>
             </select>
             <div class="modal-actions">
               <button type="submit" class="primary">开始下载</button>
@@ -251,15 +324,15 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
     <th class="{{if index $.Weekend .}}weekend{{end}}">{{.}}<br><span class="wk">{{index $.WeekNames .}}</span><br>上</th>
     <th class="{{if index $.Weekend .}}weekend{{end}}">{{.}}<br><span class="wk">{{index $.WeekNames .}}</span><br>加</th>
     {{end}}
-    <th class="sum-col"><span>出勤</span><br><span>天数</span></th>
-    <th class="sum-col"><span>加班</span><br><span>小时</span></th>
-    <th class="sum-col"><span>加班</span><br><span>天数</span></th>
-    <th class="sum-col"><span>普通</span><br><span>加班</span></th>
-    <th class="sum-col"><span>周末</span><br><span>加班</span></th>
-    <th class="sum-col"><span>节日</span><br><span>加班</span></th>
-    <th class="sum-col"><span>迟到</span><br><span>分钟</span></th>
-    <th class="sum-col"><span>早退</span><br><span>分钟</span></th>
-    <th class="sum-col"><span>请假</span><br><span>小时</span></th>
+    {{if index $.Show "present"}}<th class="sum-col"><span>出勤</span><br><span>天数</span></th>{{end}}
+    {{if index $.Show "overhours"}}<th class="sum-col"><span>加班</span><br><span>小时</span></th>{{end}}
+    {{if index $.Show "overdays"}}<th class="sum-col"><span>加班</span><br><span>天数</span></th>{{end}}
+    {{if index $.Show "normalot"}}<th class="sum-col"><span>普通</span><br><span>加班</span></th>{{end}}
+    {{if index $.Show "weekendot"}}<th class="sum-col"><span>周末</span><br><span>加班</span></th>{{end}}
+    {{if index $.Show "holidayot"}}<th class="sum-col"><span>节日</span><br><span>加班</span></th>{{end}}
+    {{if index $.Show "latemins"}}<th class="sum-col"><span>迟到</span><br><span>分钟</span></th>{{end}}
+    {{if index $.Show "earlymins"}}<th class="sum-col"><span>早退</span><br><span>分钟</span></th>{{end}}
+    {{if index $.Show "leavehours"}}<th class="sum-col"><span>请假</span><br><span>小时</span></th>{{end}}
     </tr>
 
     {{range .Users}}
@@ -277,15 +350,15 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
     {{end}}
     {{end}}
     {{with index $.SumStr (printf "%d" $uid) }}
-    <td class="sum-col">{{.PresentDays}}</td>
-    <td class="sum-col">{{.OverHours}}</td>
-    <td class="sum-col">{{.OverDays}}</td>
-    <td class="sum-col">{{.NormalOT}}</td>
-    <td class="sum-col">{{.WeekendOT}}</td>
-    <td class="sum-col">{{.HolidayOT}}</td>
-    <td class="sum-col">{{.LateMins}}</td>
-    <td class="sum-col">{{.EarlyMins}}</td>
-    <td class="sum-col">{{.LeaveHours}}</td>
+    {{if index $.Show "present"}}<td class="sum-col">{{.PresentDays}}</td>{{end}}
+    {{if index $.Show "overhours"}}<td class="sum-col">{{.OverHours}}</td>{{end}}
+    {{if index $.Show "overdays"}}<td class="sum-col">{{.OverDays}}</td>{{end}}
+    {{if index $.Show "normalot"}}<td class="sum-col">{{.NormalOT}}</td>{{end}}
+    {{if index $.Show "weekendot"}}<td class="sum-col">{{.WeekendOT}}</td>{{end}}
+    {{if index $.Show "holidayot"}}<td class="sum-col">{{.HolidayOT}}</td>{{end}}
+    {{if index $.Show "latemins"}}<td class="sum-col">{{.LateMins}}</td>{{end}}
+    {{if index $.Show "earlymins"}}<td class="sum-col">{{.EarlyMins}}</td>{{end}}
+    {{if index $.Show "leavehours"}}<td class="sum-col">{{.LeaveHours}}</td>{{end}}
     {{end}}
     </tr>
     {{end}}
@@ -364,6 +437,16 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
 		}(),
 		"SelDept0": deptIDPtr == nil,
 		"Query":    q,
+		"Show":     show,
+		"SelCols": func() map[string]bool {
+			m := map[string]bool{}
+			for k, v := range show {
+				if v {
+					m[k] = true
+				}
+			}
+			return m
+		}(),
 	}
 
 	t.Execute(w, obj)
@@ -422,12 +505,59 @@ func handlerDownload(w http.ResponseWriter, r *http.Request) {
 	cw := csv.NewWriter(w)
 	defer cw.Flush()
 
-    row := []string{"工号", "姓名", "部门"}
+	cols := r.URL.Query()["cols"]
+	show := map[string]bool{
+		"present":    true,
+		"overhours":  false,
+		"overdays":   true,
+		"normalot":   true,
+		"weekendot":  true,
+		"holidayot":  true,
+		"latemins":   true,
+		"earlymins":  true,
+		"leavehours": true,
+	}
+	if len(cols) > 0 {
+		for k := range show {
+			show[k] = false
+		}
+		for _, c := range cols {
+			show[c] = true
+		}
+	}
+
+	row := []string{"工号", "姓名", "部门"}
 	for i := 1; i <= dayCount; i++ {
 		row = append(row, fmt.Sprintf("%d号上班", i))
 		row = append(row, fmt.Sprintf("%d号加班", i))
 	}
-    row = append(row, "出勤天数", "加班小时", "加班天数", "普通加班", "周末加班", "节日加班", "迟到分钟", "早退分钟", "请假小时")
+	if show["present"] {
+		row = append(row, "出勤天数")
+	}
+	if show["overhours"] {
+		row = append(row, "加班小时")
+	}
+	if show["overdays"] {
+		row = append(row, "加班天数")
+	}
+	if show["normalot"] {
+		row = append(row, "普通加班")
+	}
+	if show["weekendot"] {
+		row = append(row, "周末加班")
+	}
+	if show["holidayot"] {
+		row = append(row, "节日加班")
+	}
+	if show["latemins"] {
+		row = append(row, "迟到分钟")
+	}
+	if show["earlymins"] {
+		row = append(row, "早退分钟")
+	}
+	if show["leavehours"] {
+		row = append(row, "请假小时")
+	}
 	cw.Write(row)
 
 	sum2 := make(map[int]SumValue)
@@ -442,6 +572,9 @@ func handlerDownload(w http.ResponseWriter, r *http.Request) {
 		s.OverHours += row.Over
 		s.LateMins += row.Late
 		s.EarlyMins += row.Early
+		s.NormalOT += row.NormalOT
+		s.WeekendOT += row.WeekendOT
+		s.HolidayOT += row.HolidayOT
 		sum2[row.UserID] = s
 	}
 
@@ -464,10 +597,36 @@ func handlerDownload(w http.ResponseWriter, r *http.Request) {
 			r = append(r, v.Work)
 			r = append(r, v.Over)
 		}
-        s := sum2[u.UserID]
-        r = append(r, format2f(s.PresentDays), formatFloat(s.OverHours), format0f(s.OverDays), formatFloat(s.NormalOT), formatFloat(s.WeekendOT), formatFloat(s.HolidayOT), format0f(s.LateMins), format0f(s.EarlyMins), format0f(s.LeaveHours))
-        cw.Write(r)
-    }
+		s := sum2[u.UserID]
+		if show["present"] {
+			r = append(r, format2f(s.PresentDays))
+		}
+		if show["overhours"] {
+			r = append(r, formatFloat(s.OverHours))
+		}
+		if show["overdays"] {
+			r = append(r, format0f(s.OverDays))
+		}
+		if show["normalot"] {
+			r = append(r, formatFloat(s.NormalOT))
+		}
+		if show["weekendot"] {
+			r = append(r, formatFloat(s.WeekendOT))
+		}
+		if show["holidayot"] {
+			r = append(r, formatFloat(s.HolidayOT))
+		}
+		if show["latemins"] {
+			r = append(r, format0f(s.LateMins))
+		}
+		if show["earlymins"] {
+			r = append(r, format0f(s.EarlyMins))
+		}
+		if show["leavehours"] {
+			r = append(r, format0f(s.LeaveHours))
+		}
+		cw.Write(r)
+	}
 }
 
 func handlerDownloadXLS(w http.ResponseWriter, r *http.Request) {
@@ -524,6 +683,9 @@ func handlerDownloadXLS(w http.ResponseWriter, r *http.Request) {
 		s.OverHours += row.Over
 		s.LateMins += row.Late
 		s.EarlyMins += row.Early
+		s.NormalOT += row.NormalOT
+		s.WeekendOT += row.WeekendOT
+		s.HolidayOT += row.HolidayOT
 		sum[uid] = s
 	}
 
@@ -545,12 +707,60 @@ func handlerDownloadXLS(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("\xEF\xBB\xBF"))
 	fmt.Fprint(w, "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>att</title></head><body>")
 	fmt.Fprint(w, "<table border=1>")
+	cols := r.URL.Query()["cols"]
+	show := map[string]bool{
+		"present":    true,
+		"overhours":  false,
+		"overdays":   true,
+		"normalot":   true,
+		"weekendot":  true,
+		"holidayot":  true,
+		"latemins":   true,
+		"earlymins":  true,
+		"leavehours": true,
+	}
+	if len(cols) > 0 {
+		for k := range show {
+			show[k] = false
+		}
+		for _, c := range cols {
+			show[c] = true
+		}
+	}
+
 	fmt.Fprint(w, "<tr><th>工号</th><th>姓名</th><th>部门</th>")
 	for i := 1; i <= dayCount; i++ {
 		fmt.Fprintf(w, "<th>%d号上班</th>", i)
 		fmt.Fprintf(w, "<th>%d号加班</th>", i)
 	}
-    fmt.Fprint(w, "<th>出勤天数</th><th>加班小时</th><th>加班天数</th><th>普通加班</th><th>周末加班</th><th>节日加班</th><th>迟到分钟</th><th>早退分钟</th><th>请假小时</th></tr>")
+	if show["present"] {
+		fmt.Fprint(w, "<th>出勤天数</th>")
+	}
+	if show["overhours"] {
+		fmt.Fprint(w, "<th>加班小时</th>")
+	}
+	if show["overdays"] {
+		fmt.Fprint(w, "<th>加班天数</th>")
+	}
+	if show["normalot"] {
+		fmt.Fprint(w, "<th>普通加班</th>")
+	}
+	if show["weekendot"] {
+		fmt.Fprint(w, "<th>周末加班</th>")
+	}
+	if show["holidayot"] {
+		fmt.Fprint(w, "<th>节日加班</th>")
+	}
+	if show["latemins"] {
+		fmt.Fprint(w, "<th>迟到分钟</th>")
+	}
+	if show["earlymins"] {
+		fmt.Fprint(w, "<th>早退分钟</th>")
+	}
+	if show["leavehours"] {
+		fmt.Fprint(w, "<th>请假小时</th>")
+	}
+	fmt.Fprint(w, "</tr>")
 
 	for _, u := range users {
 		fmt.Fprintf(w, "<tr><td>%s</td><td>%s</td><td>%s</td>", u.Badge, u.Name, u.DeptName)
@@ -559,8 +769,35 @@ func handlerDownloadXLS(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "<td>%s</td>", v.Work)
 			fmt.Fprintf(w, "<td>%s</td>", v.Over)
 		}
-        s := sum[u.UserID]
-        fmt.Fprintf(w, "<td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>", format2f(s.PresentDays), formatFloat(s.OverHours), format0f(s.OverDays), formatFloat(s.NormalOT), formatFloat(s.WeekendOT), formatFloat(s.HolidayOT), format0f(s.LateMins), format0f(s.EarlyMins), format0f(s.LeaveHours))
+		s := sum[u.UserID]
+		if show["present"] {
+			fmt.Fprintf(w, "<td>%s</td>", format2f(s.PresentDays))
+		}
+		if show["overhours"] {
+			fmt.Fprintf(w, "<td>%s</td>", formatFloat(s.OverHours))
+		}
+		if show["overdays"] {
+			fmt.Fprintf(w, "<td>%s</td>", format0f(s.OverDays))
+		}
+		if show["normalot"] {
+			fmt.Fprintf(w, "<td>%s</td>", formatFloat(s.NormalOT))
+		}
+		if show["weekendot"] {
+			fmt.Fprintf(w, "<td>%s</td>", formatFloat(s.WeekendOT))
+		}
+		if show["holidayot"] {
+			fmt.Fprintf(w, "<td>%s</td>", formatFloat(s.HolidayOT))
+		}
+		if show["latemins"] {
+			fmt.Fprintf(w, "<td>%s</td>", format0f(s.LateMins))
+		}
+		if show["earlymins"] {
+			fmt.Fprintf(w, "<td>%s</td>", format0f(s.EarlyMins))
+		}
+		if show["leavehours"] {
+			fmt.Fprintf(w, "<td>%s</td>", format0f(s.LeaveHours))
+		}
+		fmt.Fprint(w, "</tr>")
 	}
 	fmt.Fprint(w, "</table></body></html>")
 }

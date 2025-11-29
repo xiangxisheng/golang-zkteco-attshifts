@@ -5,6 +5,14 @@ document.addEventListener('DOMContentLoaded',()=>{
   ;[year,month].forEach(el=>el&&el.addEventListener('change',()=>form.submit()))
 
   const loading=document.getElementById('loading')
+  const colsForm=document.getElementById('cols-form')
+  const openCols=document.getElementById('open-cols')
+  const colsModal=document.getElementById('cols-modal')
+  const closeCols=document.getElementById('close-cols')
+  openCols&&openCols.addEventListener('click',()=>{ colsModal.classList.remove('hidden') })
+  closeCols&&closeCols.addEventListener('click',()=>{ colsModal.classList.add('hidden') })
+  colsModal&&colsModal.addEventListener('click',e=>{ if(e.target===colsModal){ colsModal.classList.add('hidden') } })
+  colsForm&&colsForm.addEventListener('submit',()=>{ loading?.classList.remove('hidden') })
 
   const dlForm=document.getElementById('dl-form')
   const openBtn=document.getElementById('open-dl')
@@ -26,5 +34,10 @@ document.addEventListener('DOMContentLoaded',()=>{
     dlForm.action=fmt==='xls'?'/download.xls':'/download'
     modal.classList.add('hidden')
     loading?.classList.remove('hidden')
+    setTimeout(()=>{ loading?.classList.add('hidden') }, 2000)
+  })
+
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='visible'){ loading?.classList.add('hidden') }
   })
 })

@@ -26,7 +26,7 @@ func main() {
 	db.Init(cfgPath)
 	defer db.Close()
 
-	web.RegisterRoutes()
+    web.RegisterRoutes(cfg)
 
 	port := cfg.HTTPPort
 	if port == 0 {
