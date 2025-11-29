@@ -64,10 +64,10 @@ func renderGridTableHTML(m ReportModel, weekend map[int]bool, weekNames map[int]
         b.WriteString("<th style=\"position:sticky;top:30px;z-index:2;background:#f1f5f9\">上</th><th style=\"position:sticky;top:30px;z-index:2;background:#f1f5f9\">加</th>")
     }
     for _, c := range overtimeCols {
-        fmt.Fprintf(&b, "<th class=\"sum-col\">%s</th>", html.EscapeString(c.Title))
+        fmt.Fprintf(&b, "<th class=\"sum-col\" style=\"position:sticky;top:30px;z-index:2;background:#f1f5f9\">%s</th>", html.EscapeString(c.Title))
     }
     for _, c := range leaveCols {
-        fmt.Fprintf(&b, "<th class=\"sum-col\">%s</th>", html.EscapeString(c.Title))
+        fmt.Fprintf(&b, "<th class=\"sum-col\" style=\"position:sticky;top:30px;z-index:2;background:#f1f5f9\">%s</th>", html.EscapeString(c.Title))
     }
     b.WriteString("</tr>\n")
 
