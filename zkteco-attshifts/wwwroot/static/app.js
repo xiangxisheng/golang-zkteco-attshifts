@@ -30,8 +30,8 @@ document.addEventListener('DOMContentLoaded',()=>{
   })
 
   dlForm&&dlForm.addEventListener('submit',e=>{
-    const fmt=dlForm.querySelector('select[name="fmt"]').value
-    dlForm.action=fmt==='xls'?'/download.xls':'/download'
+    const fmt=(dlForm.querySelector('input[name="fmt"]:checked')||{value:'csv'}).value
+    dlForm.action = (fmt==='xls') ? '/download.xls' : (fmt==='html' ? '/download.html' : '/download')
     modal.classList.add('hidden')
     loading?.classList.remove('hidden')
     setTimeout(()=>{ loading?.classList.add('hidden') }, 2000)

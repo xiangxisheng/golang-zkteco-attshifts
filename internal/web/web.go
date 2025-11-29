@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"html/template"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -28,6 +29,303 @@ type SumValue struct {
 	NormalOT    float64
 	WeekendOT   float64
 	HolidayOT   float64
+}
+
+type ReportModel struct {
+	Year  int
+	Month int
+	Days  []int
+	Users []service.UserInfo
+	Daily map[int]map[int]DayValue
+	Sum   map[int]SumValue
+	Show  map[string]bool
+	Mode  string
+}
+
+type Column struct {
+	Key   string
+	Title string
+	Value func(SumValue) string
+}
+
+func allColumns() []Column {
+	return []Column{
+		{Key: "present", Title: "出勤天数", Value: func(s SumValue) string { return format2f(s.PresentDays) }},
+		{Key: "overhours", Title: "加班小时", Value: func(s SumValue) string { return formatFloat(s.OverHours) }},
+		{Key: "overdays", Title: "加班天数", Value: func(s SumValue) string { return format0f(s.OverDays) }},
+		{Key: "normalot", Title: "普通加班", Value: func(s SumValue) string { return formatFloat(s.NormalOT) }},
+		{Key: "weekendot", Title: "周末加班", Value: func(s SumValue) string { return formatFloat(s.WeekendOT) }},
+		{Key: "holidayot", Title: "节日加班", Value: func(s SumValue) string { return formatFloat(s.HolidayOT) }},
+		{Key: "latemins", Title: "迟到分钟", Value: func(s SumValue) string { return format0f(s.LateMins) }},
+		{Key: "earlymins", Title: "早退分钟", Value: func(s SumValue) string { return format0f(s.EarlyMins) }},
+		{Key: "leavehours", Title: "请假小时", Value: func(s SumValue) string { return format0f(s.LeaveHours) }},
+	}
+}
+
+func visibleColumns(m ReportModel) []Column {
+	cols := []Column{}
+	for _, c := range allColumns() {
+		if m.Show[c.Key] {
+			cols = append(cols, c)
+		}
+	}
+	return cols
+}
+
+func identityHeaders() []string               { return []string{"工号", "姓名", "部门"} }
+func identityRow(u service.UserInfo) []string { return []string{u.Badge, u.Name, u.DeptName} }
+func dailyHeaderTitles(m ReportModel) []string {
+	titles := []string{}
+	if m.Mode == "all" || m.Mode == "work" || m.Mode == "over" {
+		for _, d := range m.Days {
+			if m.Mode == "all" || m.Mode == "work" {
+				titles = append(titles, fmt.Sprintf("%d号上班", d))
+			}
+			if m.Mode == "all" || m.Mode == "over" {
+				titles = append(titles, fmt.Sprintf("%d号加班", d))
+			}
+		}
+	}
+	return titles
+}
+func dailyRowValues(m ReportModel, userID int) []string {
+	vals := []string{}
+	if m.Mode == "all" || m.Mode == "work" || m.Mode == "over" {
+		for _, d := range m.Days {
+			v := m.Daily[userID][d]
+			if m.Mode == "all" || m.Mode == "work" {
+				vals = append(vals, v.Work)
+			}
+			if m.Mode == "all" || m.Mode == "over" {
+				vals = append(vals, v.Over)
+			}
+		}
+	}
+	return vals
+}
+
+func parseShowFrom(r *http.Request) map[string]bool {
+	cols := r.URL.Query()["cols"]
+	show := map[string]bool{
+		"present":    true,
+		"overhours":  false,
+		"overdays":   true,
+		"normalot":   true,
+		"weekendot":  true,
+		"holidayot":  true,
+		"latemins":   true,
+		"earlymins":  true,
+		"leavehours": true,
+	}
+	if len(cols) > 0 {
+		for k := range show {
+			show[k] = false
+		}
+		for _, c := range cols {
+			show[c] = true
+		}
+	}
+	return show
+}
+
+func parseModeFrom(r *http.Request) string {
+	s := r.URL.Query().Get("mode")
+	if s == "" {
+		s = "all"
+	}
+	return s
+}
+
+func buildModel(ctx context.Context, r *http.Request) (ReportModel, error) {
+	now := time.Now()
+	y := now.Year()
+	m := int(now.Month())
+	if v := r.URL.Query().Get("year"); v != "" {
+		if iv, err := strconv.Atoi(v); err == nil {
+			y = iv
+		}
+	}
+	if v := r.URL.Query().Get("month"); v != "" {
+		if iv, err := strconv.Atoi(v); err == nil && iv >= 1 && iv <= 12 {
+			m = iv
+		}
+	}
+	deptParam := r.URL.Query().Get("dept")
+	var deptIDPtr *int
+	if deptParam != "" {
+		if dv, err := strconv.Atoi(deptParam); err == nil && dv > 0 {
+			deptIDPtr = &dv
+		}
+	}
+	q := r.URL.Query().Get("q")
+	show := parseShowFrom(r)
+	mode := parseModeFrom(r)
+
+	firstDay := time.Date(y, time.Month(m), 1, 0, 0, 0, 0, time.Local)
+	lastDay := firstDay.AddDate(0, 1, -1)
+	dayCount := lastDay.Day()
+
+	users, err := service.QueryUsersFiltered(ctx, deptIDPtr, q)
+	if err != nil {
+		return ReportModel{}, err
+	}
+	att, err := service.QueryAtt(ctx, firstDay, lastDay)
+	if err != nil {
+		return ReportModel{}, err
+	}
+
+	daily := make(map[int]map[int]DayValue)
+	sum := make(map[int]SumValue)
+	for _, row := range att {
+		uid := row.UserID
+		d := row.AttDate.Day()
+		if daily[uid] == nil {
+			daily[uid] = make(map[int]DayValue)
+		}
+		daily[uid][d] = DayValue{Work: formatFloat(row.Work), Over: formatFloat(row.Over)}
+		s := sum[uid]
+		if row.Required > 0 {
+			s.PresentDays += row.Work / row.Required
+		}
+		if row.Over > 0 {
+			s.OverDays += 1
+		}
+		s.OverHours += row.Over
+		s.LateMins += row.Late
+		s.EarlyMins += row.Early
+		s.NormalOT += row.NormalOT
+		s.WeekendOT += row.WeekendOT
+		s.HolidayOT += row.HolidayOT
+		sum[uid] = s
+	}
+	leaves, _ := service.QueryLeaveSymbols(ctx, firstDay, lastDay)
+	for _, r2 := range leaves {
+		val := extractFloat(r2.Symbol)
+		s := sum[r2.UserID]
+		s.LeaveHours += val
+		sum[r2.UserID] = s
+	}
+	var days []int
+	for i := 1; i <= dayCount; i++ {
+		days = append(days, i)
+	}
+	return ReportModel{Year: y, Month: m, Days: days, Users: users, Daily: daily, Sum: sum, Show: show, Mode: mode}, nil
+}
+
+func renderCSVModel(w http.ResponseWriter, m ReportModel) {
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", "attachment; filename=att.csv")
+	w.Write([]byte("\xEF\xBB\xBF"))
+	cw := csv.NewWriter(w)
+	defer cw.Flush()
+
+	row := []string{"工号", "姓名", "部门"}
+	if m.Mode == "all" || m.Mode == "work" || m.Mode == "over" {
+		for _, d := range m.Days {
+			if m.Mode == "all" || m.Mode == "work" {
+				row = append(row, fmt.Sprintf("%d号上班", d))
+			}
+			if m.Mode == "all" || m.Mode == "over" {
+				row = append(row, fmt.Sprintf("%d号加班", d))
+			}
+		}
+	}
+	for _, c := range visibleColumns(m) {
+		row = append(row, c.Title)
+	}
+	cw.Write(row)
+
+	for _, u := range m.Users {
+		r := []string{u.Badge, u.Name, u.DeptName}
+		if m.Mode == "all" || m.Mode == "work" || m.Mode == "over" {
+			for _, d := range m.Days {
+				v := m.Daily[u.UserID][d]
+				if m.Mode == "all" || m.Mode == "work" {
+					r = append(r, v.Work)
+				}
+				if m.Mode == "all" || m.Mode == "over" {
+					r = append(r, v.Over)
+				}
+			}
+		}
+		s := m.Sum[u.UserID]
+		for _, c := range visibleColumns(m) {
+			r = append(r, c.Value(s))
+		}
+		cw.Write(r)
+	}
+}
+
+func renderXLSModel(w http.ResponseWriter, m ReportModel) {
+	w.Header().Set("Content-Type", "application/vnd.ms-excel")
+	w.Header().Set("Content-Disposition", "attachment; filename=att.xls")
+	w.Write([]byte("\xEF\xBB\xBF"))
+	fmt.Fprint(w, "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>att</title></head><body>")
+	fmt.Fprint(w, "<table border=1>")
+	fmt.Fprint(w, "<tr>")
+	for _, h := range identityHeaders() {
+		fmt.Fprintf(w, "<th>%s</th>", h)
+	}
+	for _, h := range dailyHeaderTitles(m) {
+		fmt.Fprintf(w, "<th>%s</th>", h)
+	}
+	for _, c := range visibleColumns(m) {
+		fmt.Fprintf(w, "<th>%s</th>", c.Title)
+	}
+	fmt.Fprint(w, "</tr>")
+
+	for _, u := range m.Users {
+		fmt.Fprint(w, "<tr>")
+		for _, v := range identityRow(u) {
+			fmt.Fprintf(w, "<td>%s</td>", v)
+		}
+		for _, v := range dailyRowValues(m, u.UserID) {
+			fmt.Fprintf(w, "<td>%s</td>", v)
+		}
+		s := m.Sum[u.UserID]
+		for _, c := range visibleColumns(m) {
+			fmt.Fprintf(w, "<td>%s</td>", c.Value(s))
+		}
+		fmt.Fprint(w, "</tr>")
+	}
+	fmt.Fprint(w, "</table></body></html>")
+}
+
+func renderHTMLModel(w http.ResponseWriter, m ReportModel) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename=att.html")
+	io.WriteString(w, "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>att</title><style>table{border-collapse:collapse}td,th{border:1px solid #999;padding:4px;font-size:12px}th{background:#f1f5f9}tr:nth-child(even){background:#f9fafb}td{text-align:center}</style></head><body>")
+	fmt.Fprint(w, "<table>")
+	fmt.Fprint(w, "<tr><th>工号</th><th>姓名</th><th>部门</th>")
+	if m.Mode == "all" || m.Mode == "work" || m.Mode == "over" {
+		for _, d := range m.Days {
+			if m.Mode == "all" || m.Mode == "work" {
+				fmt.Fprintf(w, "<th>%d上</th>", d)
+			}
+			if m.Mode == "all" || m.Mode == "over" {
+				fmt.Fprintf(w, "<th>%d加</th>", d)
+			}
+		}
+	}
+	for _, c := range visibleColumns(m) {
+		fmt.Fprintf(w, "<th>%s</th>", c.Title)
+	}
+	fmt.Fprint(w, "</tr>")
+	for _, u := range m.Users {
+		fmt.Fprint(w, "<tr>")
+		for _, v := range identityRow(u) {
+			fmt.Fprintf(w, "<td>%s</td>", v)
+		}
+		for _, v := range dailyRowValues(m, u.UserID) {
+			fmt.Fprintf(w, "<td>%s</td>", v)
+		}
+		s := m.Sum[u.UserID]
+		for _, c := range visibleColumns(m) {
+			fmt.Fprintf(w, "<td>%s</td>", c.Value(s))
+		}
+		fmt.Fprint(w, "</tr>")
+	}
+	io.WriteString(w, "</table></body></html>")
 }
 
 func formatFloat(f float64) string {
@@ -132,6 +430,7 @@ func RegisterRoutes(cfg config.Config) {
 	})
 	http.HandleFunc("/download", handlerDownload)
 	http.HandleFunc("/download.xls", handlerDownloadXLS)
+	http.HandleFunc("/download.html", handlerDownloadHTML)
 }
 
 func handlerIndex(w http.ResponseWriter, r *http.Request) {
@@ -301,10 +600,11 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
             <input type="hidden" name="q" value="{{.Query}}" />
             {{range $k,$v := .SelCols}}{{if $v}}<input type="hidden" name="cols" value="{{$k}}" />{{end}}{{end}}
             <label>格式</label>
-            <select name="fmt">
-              <option value="csv" selected>CSV（UTF-8）</option>
-              <option value="xls">Excel（兼容中文）</option>
-            </select>
+            <div class="col-picker">
+              <label><input type="radio" name="fmt" value="csv" checked>CSV</label>
+              <label><input type="radio" name="fmt" value="xls">Excel</label>
+              <label><input type="radio" name="fmt" value="html">HTML</label>
+            </div>
             <div class="modal-actions">
               <button type="submit" class="primary">开始下载</button>
               <button type="button" id="close-dl">取消</button>
@@ -454,350 +754,18 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
 
 func handlerDownload(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
-
-	now := time.Now()
-	y := now.Year()
-	m := int(now.Month())
-	if v := r.URL.Query().Get("year"); v != "" {
-		if iv, err := strconv.Atoi(v); err == nil {
-			y = iv
-		}
-	}
-	if v := r.URL.Query().Get("month"); v != "" {
-		if iv, err := strconv.Atoi(v); err == nil && iv >= 1 && iv <= 12 {
-			m = iv
-		}
-	}
-
-	firstDay := time.Date(y, time.Month(m), 1, 0, 0, 0, 0, time.Local)
-	lastDay := firstDay.AddDate(0, 1, -1)
-	dayCount := lastDay.Day()
-
-	deptParam := r.URL.Query().Get("dept")
-	var deptIDPtr *int
-	if deptParam != "" {
-		if dv, err := strconv.Atoi(deptParam); err == nil && dv > 0 {
-			deptIDPtr = &dv
-		}
-	}
-	q := r.URL.Query().Get("q")
-
-	users, _ := service.QueryUsersFiltered(ctx, deptIDPtr, q)
-	att, _ := service.QueryAtt(ctx, firstDay, lastDay)
-
-	data := make(map[int]map[int]DayValue)
-	for _, row := range att {
-		uid := row.UserID
-		day := row.AttDate.Day()
-		if data[uid] == nil {
-			data[uid] = make(map[int]DayValue)
-		}
-		data[uid][day] = DayValue{
-			Work: formatFloat(row.Work),
-			Over: formatFloat(row.Over),
-		}
-	}
-
-	w.Header().Set("Content-Type", "text/csv")
-	w.Header().Set("Content-Disposition", "attachment; filename=att.csv")
-
-	w.Write([]byte("\xEF\xBB\xBF"))
-	cw := csv.NewWriter(w)
-	defer cw.Flush()
-
-	cols := r.URL.Query()["cols"]
-	show := map[string]bool{
-		"present":    true,
-		"overhours":  false,
-		"overdays":   true,
-		"normalot":   true,
-		"weekendot":  true,
-		"holidayot":  true,
-		"latemins":   true,
-		"earlymins":  true,
-		"leavehours": true,
-	}
-	if len(cols) > 0 {
-		for k := range show {
-			show[k] = false
-		}
-		for _, c := range cols {
-			show[c] = true
-		}
-	}
-
-	row := []string{"工号", "姓名", "部门"}
-	for i := 1; i <= dayCount; i++ {
-		row = append(row, fmt.Sprintf("%d号上班", i))
-		row = append(row, fmt.Sprintf("%d号加班", i))
-	}
-	if show["present"] {
-		row = append(row, "出勤天数")
-	}
-	if show["overhours"] {
-		row = append(row, "加班小时")
-	}
-	if show["overdays"] {
-		row = append(row, "加班天数")
-	}
-	if show["normalot"] {
-		row = append(row, "普通加班")
-	}
-	if show["weekendot"] {
-		row = append(row, "周末加班")
-	}
-	if show["holidayot"] {
-		row = append(row, "节日加班")
-	}
-	if show["latemins"] {
-		row = append(row, "迟到分钟")
-	}
-	if show["earlymins"] {
-		row = append(row, "早退分钟")
-	}
-	if show["leavehours"] {
-		row = append(row, "请假小时")
-	}
-	cw.Write(row)
-
-	sum2 := make(map[int]SumValue)
-	for _, row := range att {
-		s := sum2[row.UserID]
-		if row.Required > 0 {
-			s.PresentDays += row.Work / row.Required
-		}
-		if row.Over > 0 {
-			s.OverDays += 1
-		}
-		s.OverHours += row.Over
-		s.LateMins += row.Late
-		s.EarlyMins += row.Early
-		s.NormalOT += row.NormalOT
-		s.WeekendOT += row.WeekendOT
-		s.HolidayOT += row.HolidayOT
-		sum2[row.UserID] = s
-	}
-
-	leaves2, _ := service.QueryLeaveSymbols(ctx, firstDay, lastDay)
-	leaveSum2 := map[int]float64{}
-	for _, r := range leaves2 {
-		val := extractFloat(r.Symbol)
-		leaveSum2[r.UserID] += val
-	}
-	for uid, v := range leaveSum2 {
-		s := sum2[uid]
-		s.LeaveHours += v
-		sum2[uid] = s
-	}
-
-	for _, u := range users {
-		r := []string{u.Badge, u.Name, u.DeptName}
-		for i := 1; i <= dayCount; i++ {
-			v := data[u.UserID][i]
-			r = append(r, v.Work)
-			r = append(r, v.Over)
-		}
-		s := sum2[u.UserID]
-		if show["present"] {
-			r = append(r, format2f(s.PresentDays))
-		}
-		if show["overhours"] {
-			r = append(r, formatFloat(s.OverHours))
-		}
-		if show["overdays"] {
-			r = append(r, format0f(s.OverDays))
-		}
-		if show["normalot"] {
-			r = append(r, formatFloat(s.NormalOT))
-		}
-		if show["weekendot"] {
-			r = append(r, formatFloat(s.WeekendOT))
-		}
-		if show["holidayot"] {
-			r = append(r, formatFloat(s.HolidayOT))
-		}
-		if show["latemins"] {
-			r = append(r, format0f(s.LateMins))
-		}
-		if show["earlymins"] {
-			r = append(r, format0f(s.EarlyMins))
-		}
-		if show["leavehours"] {
-			r = append(r, format0f(s.LeaveHours))
-		}
-		cw.Write(r)
-	}
+	mModel, _ := buildModel(ctx, r)
+	renderCSVModel(w, mModel)
 }
 
 func handlerDownloadXLS(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
+	mModel, _ := buildModel(ctx, r)
+	renderXLSModel(w, mModel)
+}
 
-	now := time.Now()
-	y := now.Year()
-	m := int(now.Month())
-	if v := r.URL.Query().Get("year"); v != "" {
-		if iv, err := strconv.Atoi(v); err == nil {
-			y = iv
-		}
-	}
-	if v := r.URL.Query().Get("month"); v != "" {
-		if iv, err := strconv.Atoi(v); err == nil && iv >= 1 && iv <= 12 {
-			m = iv
-		}
-	}
-	deptParam := r.URL.Query().Get("dept")
-	var deptIDPtr *int
-	if deptParam != "" {
-		if dv, err := strconv.Atoi(deptParam); err == nil && dv > 0 {
-			deptIDPtr = &dv
-		}
-	}
-	q := r.URL.Query().Get("q")
-
-	firstDay := time.Date(y, time.Month(m), 1, 0, 0, 0, 0, time.Local)
-	lastDay := firstDay.AddDate(0, 1, -1)
-	dayCount := lastDay.Day()
-
-	users, _ := service.QueryUsersFiltered(ctx, deptIDPtr, q)
-	att, _ := service.QueryAtt(ctx, firstDay, lastDay)
-
-	data := make(map[int]map[int]DayValue)
-	sum := make(map[int]SumValue)
-	for _, row := range att {
-		uid := row.UserID
-		day := row.AttDate.Day()
-		if data[uid] == nil {
-			data[uid] = make(map[int]DayValue)
-		}
-		data[uid][day] = DayValue{
-			Work: formatFloat(row.Work),
-			Over: formatFloat(row.Over),
-		}
-		s := sum[uid]
-		if row.Required > 0 {
-			s.PresentDays += row.Work / row.Required
-		}
-		if row.Over > 0 {
-			s.OverDays += 1
-		}
-		s.OverHours += row.Over
-		s.LateMins += row.Late
-		s.EarlyMins += row.Early
-		s.NormalOT += row.NormalOT
-		s.WeekendOT += row.WeekendOT
-		s.HolidayOT += row.HolidayOT
-		sum[uid] = s
-	}
-
-	leavesX, _ := service.QueryLeaveSymbols(ctx, firstDay, lastDay)
-	leaveSumX := map[int]float64{}
-	for _, r := range leavesX {
-		val := extractFloat(r.Symbol)
-		leaveSumX[r.UserID] += val
-	}
-	for uid, v := range leaveSumX {
-		s := sum[uid]
-		s.LeaveHours += v
-		sum[uid] = s
-	}
-
-	w.Header().Set("Content-Type", "application/vnd.ms-excel")
-	w.Header().Set("Content-Disposition", "attachment; filename=att.xls")
-
-	w.Write([]byte("\xEF\xBB\xBF"))
-	fmt.Fprint(w, "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>att</title></head><body>")
-	fmt.Fprint(w, "<table border=1>")
-	cols := r.URL.Query()["cols"]
-	show := map[string]bool{
-		"present":    true,
-		"overhours":  false,
-		"overdays":   true,
-		"normalot":   true,
-		"weekendot":  true,
-		"holidayot":  true,
-		"latemins":   true,
-		"earlymins":  true,
-		"leavehours": true,
-	}
-	if len(cols) > 0 {
-		for k := range show {
-			show[k] = false
-		}
-		for _, c := range cols {
-			show[c] = true
-		}
-	}
-
-	fmt.Fprint(w, "<tr><th>工号</th><th>姓名</th><th>部门</th>")
-	for i := 1; i <= dayCount; i++ {
-		fmt.Fprintf(w, "<th>%d号上班</th>", i)
-		fmt.Fprintf(w, "<th>%d号加班</th>", i)
-	}
-	if show["present"] {
-		fmt.Fprint(w, "<th>出勤天数</th>")
-	}
-	if show["overhours"] {
-		fmt.Fprint(w, "<th>加班小时</th>")
-	}
-	if show["overdays"] {
-		fmt.Fprint(w, "<th>加班天数</th>")
-	}
-	if show["normalot"] {
-		fmt.Fprint(w, "<th>普通加班</th>")
-	}
-	if show["weekendot"] {
-		fmt.Fprint(w, "<th>周末加班</th>")
-	}
-	if show["holidayot"] {
-		fmt.Fprint(w, "<th>节日加班</th>")
-	}
-	if show["latemins"] {
-		fmt.Fprint(w, "<th>迟到分钟</th>")
-	}
-	if show["earlymins"] {
-		fmt.Fprint(w, "<th>早退分钟</th>")
-	}
-	if show["leavehours"] {
-		fmt.Fprint(w, "<th>请假小时</th>")
-	}
-	fmt.Fprint(w, "</tr>")
-
-	for _, u := range users {
-		fmt.Fprintf(w, "<tr><td>%s</td><td>%s</td><td>%s</td>", u.Badge, u.Name, u.DeptName)
-		for i := 1; i <= dayCount; i++ {
-			v := data[u.UserID][i]
-			fmt.Fprintf(w, "<td>%s</td>", v.Work)
-			fmt.Fprintf(w, "<td>%s</td>", v.Over)
-		}
-		s := sum[u.UserID]
-		if show["present"] {
-			fmt.Fprintf(w, "<td>%s</td>", format2f(s.PresentDays))
-		}
-		if show["overhours"] {
-			fmt.Fprintf(w, "<td>%s</td>", formatFloat(s.OverHours))
-		}
-		if show["overdays"] {
-			fmt.Fprintf(w, "<td>%s</td>", format0f(s.OverDays))
-		}
-		if show["normalot"] {
-			fmt.Fprintf(w, "<td>%s</td>", formatFloat(s.NormalOT))
-		}
-		if show["weekendot"] {
-			fmt.Fprintf(w, "<td>%s</td>", formatFloat(s.WeekendOT))
-		}
-		if show["holidayot"] {
-			fmt.Fprintf(w, "<td>%s</td>", formatFloat(s.HolidayOT))
-		}
-		if show["latemins"] {
-			fmt.Fprintf(w, "<td>%s</td>", format0f(s.LateMins))
-		}
-		if show["earlymins"] {
-			fmt.Fprintf(w, "<td>%s</td>", format0f(s.EarlyMins))
-		}
-		if show["leavehours"] {
-			fmt.Fprintf(w, "<td>%s</td>", format0f(s.LeaveHours))
-		}
-		fmt.Fprint(w, "</tr>")
-	}
-	fmt.Fprint(w, "</table></body></html>")
+func handlerDownloadHTML(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
+	mModel, _ := buildModel(ctx, r)
+	renderHTMLModel(w, mModel)
 }
