@@ -144,13 +144,14 @@ func QueryAtt(ctx context.Context, start, end time.Time) ([]AttRow, error) {
 }
 
 type LeaveSymbolRow struct {
-	UserID int
-	Symbol string
+    UserID      int
+    ExceptionID int
+    Symbol      string
 }
 
 func QueryLeaveSymbols(ctx context.Context, start, end time.Time) ([]LeaveSymbolRow, error) {
-	sqlStr := `
-    SELECT userid, symbol
+    sqlStr := `
+    SELECT userid, exceptionid, symbol
     FROM attshifts
     WHERE attdate BETWEEN @p1 AND @p2
       AND exceptionid IS NOT NULL
@@ -164,10 +165,10 @@ func QueryLeaveSymbols(ctx context.Context, start, end time.Time) ([]LeaveSymbol
 	defer rows.Close()
 
 	list := []LeaveSymbolRow{}
-	for rows.Next() {
-		var r LeaveSymbolRow
-		rows.Scan(&r.UserID, &r.Symbol)
-		list = append(list, r)
-	}
-	return list, nil
+    for rows.Next() {
+        var r LeaveSymbolRow
+        rows.Scan(&r.UserID, &r.ExceptionID, &r.Symbol)
+        list = append(list, r)
+    }
+    return list, nil
 }

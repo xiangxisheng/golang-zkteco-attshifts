@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 	"zkteco-attshifts/internal/config"
 	"zkteco-attshifts/internal/service"
@@ -29,6 +30,11 @@ type SumValue struct {
 	NormalOT    float64
 	WeekendOT   float64
 	HolidayOT   float64
+	E1Business  float64
+	E2Sick      float64
+	E3Personal  float64
+	E4Home      float64
+	E5Annual    float64
 }
 
 type ReportModel struct {
@@ -43,22 +49,29 @@ type ReportModel struct {
 }
 
 type Column struct {
-	Key   string
-	Title string
-	Value func(SumValue) string
+	Key      string
+	Title    string
+	SumField string
+	Value    func(SumValue) string
+	Default  bool
 }
 
 func allColumns() []Column {
 	return []Column{
-		{Key: "present", Title: "出勤天数", Value: func(s SumValue) string { return format2f(s.PresentDays) }},
-		{Key: "overhours", Title: "加班小时", Value: func(s SumValue) string { return formatFloat(s.OverHours) }},
-		{Key: "overdays", Title: "加班天数", Value: func(s SumValue) string { return format0f(s.OverDays) }},
-		{Key: "normalot", Title: "普通加班", Value: func(s SumValue) string { return formatFloat(s.NormalOT) }},
-		{Key: "weekendot", Title: "周末加班", Value: func(s SumValue) string { return formatFloat(s.WeekendOT) }},
-		{Key: "holidayot", Title: "节日加班", Value: func(s SumValue) string { return formatFloat(s.HolidayOT) }},
-		{Key: "latemins", Title: "迟到分钟", Value: func(s SumValue) string { return format0f(s.LateMins) }},
-		{Key: "earlymins", Title: "早退分钟", Value: func(s SumValue) string { return format0f(s.EarlyMins) }},
-		{Key: "leavehours", Title: "请假小时", Value: func(s SumValue) string { return format0f(s.LeaveHours) }},
+		{Key: "present", Title: "出勤天数", SumField: "PresentDays", Value: func(s SumValue) string { return formatPresent(s.PresentDays) }, Default: true},
+		{Key: "overhours", Title: "加班小时", SumField: "OverHours", Value: func(s SumValue) string { return formatFloat(s.OverHours) }, Default: false},
+		{Key: "overdays", Title: "加班天数", SumField: "OverDays", Value: func(s SumValue) string { return format0f(s.OverDays) }, Default: true},
+		{Key: "normalot", Title: "普通加班", SumField: "NormalOT", Value: func(s SumValue) string { return formatFloat(s.NormalOT) }, Default: true},
+		{Key: "weekendot", Title: "周末加班", SumField: "WeekendOT", Value: func(s SumValue) string { return formatFloat(s.WeekendOT) }, Default: true},
+		{Key: "holidayot", Title: "节日加班", SumField: "HolidayOT", Value: func(s SumValue) string { return formatFloat(s.HolidayOT) }, Default: true},
+		{Key: "latemins", Title: "迟到分钟", SumField: "LateMins", Value: func(s SumValue) string { return format0f(s.LateMins) }, Default: true},
+		{Key: "earlymins", Title: "早退分钟", SumField: "EarlyMins", Value: func(s SumValue) string { return format0f(s.EarlyMins) }, Default: true},
+		{Key: "leavehours", Title: "请假小时", SumField: "LeaveHours", Value: func(s SumValue) string { return format2f(s.LeaveHours) }, Default: true},
+		{Key: "e1", Title: "公出", SumField: "E1", Value: func(s SumValue) string { return format2f(s.E1Business) }, Default: true},
+		{Key: "e2", Title: "病假", SumField: "E2", Value: func(s SumValue) string { return format2f(s.E2Sick) }, Default: true},
+		{Key: "e3", Title: "事假", SumField: "E3", Value: func(s SumValue) string { return format2f(s.E3Personal) }, Default: true},
+		{Key: "e4", Title: "探亲", SumField: "E4", Value: func(s SumValue) string { return format2f(s.E4Home) }, Default: true},
+		{Key: "e5", Title: "年假", SumField: "E5", Value: func(s SumValue) string { return format2f(s.E5Annual) }, Default: true},
 	}
 }
 
@@ -106,16 +119,9 @@ func dailyRowValues(m ReportModel, userID int) []string {
 
 func parseShowFrom(r *http.Request) map[string]bool {
 	cols := r.URL.Query()["cols"]
-	show := map[string]bool{
-		"present":    true,
-		"overhours":  false,
-		"overdays":   true,
-		"normalot":   true,
-		"weekendot":  true,
-		"holidayot":  true,
-		"latemins":   true,
-		"earlymins":  true,
-		"leavehours": true,
+	show := map[string]bool{}
+	for _, c := range allColumns() {
+		show[c.Key] = c.Default
 	}
 	if len(cols) > 0 {
 		for k := range show {
@@ -203,6 +209,18 @@ func buildModel(ctx context.Context, r *http.Request) (ReportModel, error) {
 		val := extractFloat(r2.Symbol)
 		s := sum[r2.UserID]
 		s.LeaveHours += val
+		switch r2.ExceptionID {
+		case 1:
+			s.E1Business += val
+		case 2:
+			s.E2Sick += val
+		case 3:
+			s.E3Personal += val
+		case 4:
+			s.E4Home += val
+		case 5:
+			s.E5Annual += val
+		}
 		sum[r2.UserID] = s
 	}
 	var days []int
@@ -315,7 +333,28 @@ func formatFloat(f float64) string {
 	return strconv.FormatFloat(f, 'f', -1, 64)
 }
 func format2f(f float64) string {
-	return strconv.FormatFloat(f, 'f', 2, 64)
+	if f == 0 {
+		return "0"
+	}
+	if f == float64(int64(f)) {
+		return fmt.Sprintf("%d", int64(f))
+	}
+	return strconv.FormatFloat(f, 'f', -1, 64)
+}
+func formatPresent(f float64) string {
+	if f == 0 {
+		return "0"
+	}
+	if f == float64(int64(f)) {
+		return fmt.Sprintf("%d", int64(f))
+	}
+	s := strconv.FormatFloat(f, 'f', -1, 64)
+	if i := strings.IndexByte(s, '.'); i >= 0 {
+		if len(s)-i-1 > 2 {
+			return fmt.Sprintf("%d", int64(f))
+		}
+	}
+	return s
 }
 func format0f(f float64) string {
 	return strconv.FormatFloat(f, 'f', 0, 64)
@@ -363,15 +402,20 @@ func wrapSumStr(data map[int]SumValue) map[string]map[string]string {
 	out := make(map[string]map[string]string)
 	for uid, v := range data {
 		out[strconv.Itoa(uid)] = map[string]string{
-			"PresentDays": format2f(v.PresentDays),
+			"PresentDays": formatPresent(v.PresentDays),
 			"OverHours":   formatFloat(v.OverHours),
 			"OverDays":    format0f(v.OverDays),
 			"LateMins":    format0f(v.LateMins),
 			"EarlyMins":   format0f(v.EarlyMins),
-			"LeaveHours":  format0f(v.LeaveHours),
+			"LeaveHours":  format2f(v.LeaveHours),
 			"NormalOT":    formatFloat(v.NormalOT),
 			"WeekendOT":   formatFloat(v.WeekendOT),
 			"HolidayOT":   formatFloat(v.HolidayOT),
+			"E1":          format2f(v.E1Business),
+			"E2":          format2f(v.E2Sick),
+			"E3":          format2f(v.E3Personal),
+			"E4":          format2f(v.E4Home),
+			"E5":          format2f(v.E5Annual),
 		}
 	}
 	return out
@@ -412,21 +456,13 @@ func RegisterRoutes(cfg config.Config) {
 
 func handlerIndex(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
-
-	now := time.Now()
-	y := now.Year()
-	m := int(now.Month())
-	if v := r.URL.Query().Get("year"); v != "" {
-		if iv, err := strconv.Atoi(v); err == nil {
-			y = iv
-		}
+	mModel, err := buildModel(ctx, r)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
 	}
-	if v := r.URL.Query().Get("month"); v != "" {
-		if iv, err := strconv.Atoi(v); err == nil && iv >= 1 && iv <= 12 {
-			m = iv
-		}
-	}
-
+	y := mModel.Year
+	m := mModel.Month
 	firstDay := time.Date(y, time.Month(m), 1, 0, 0, 0, 0, time.Local)
 	lastDay := firstDay.AddDate(0, 1, -1)
 	dayCount := lastDay.Day()
@@ -440,68 +476,8 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query().Get("q")
 
-	cols := r.URL.Query()["cols"]
-	show := map[string]bool{
-		"present":    true,
-		"overhours":  false,
-		"overdays":   true,
-		"normalot":   true,
-		"weekendot":  true,
-		"holidayot":  true,
-		"latemins":   true,
-		"earlymins":  true,
-		"leavehours": true,
-	}
-	if len(cols) > 0 {
-		for k := range show {
-			show[k] = false
-		}
-		for _, c := range cols {
-			show[c] = true
-		}
-	}
-
-	users, err := service.QueryUsersFiltered(ctx, deptIDPtr, q)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-
+	users := mModel.Users
 	depts, _ := service.QueryDepartments(ctx)
-
-	att, err := service.QueryAtt(ctx, firstDay, lastDay)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-
-	data := make(map[int]map[int]DayValue)
-	sum := make(map[int]SumValue)
-	for _, row := range att {
-		uid := row.UserID
-		day := row.AttDate.Day()
-		if data[uid] == nil {
-			data[uid] = make(map[int]DayValue)
-		}
-		data[uid][day] = DayValue{
-			Work: formatFloat(row.Work),
-			Over: formatFloat(row.Over),
-		}
-		s := sum[uid]
-		if row.Required > 0 {
-			s.PresentDays += row.Work / row.Required
-		}
-		if row.Over > 0 {
-			s.OverDays += 1
-		}
-		s.OverHours += row.Over
-		s.LateMins += row.Late
-		s.EarlyMins += row.Early
-		s.NormalOT += row.NormalOT
-		s.WeekendOT += row.WeekendOT
-		s.HolidayOT += row.HolidayOT
-		sum[uid] = s
-	}
 
 	tpl := `
     <!DOCTYPE html>
@@ -549,15 +525,9 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
             <input type="hidden" name="dept" value="{{.Dept}}" />
             <input type="hidden" name="q" value="{{.Query}}" />
             <div class="col-picker">
-              <label><input type="checkbox" name="cols" value="present" {{if index $.SelCols "present"}}checked{{end}}>出勤天数</label>
-              <label><input type="checkbox" name="cols" value="overhours" {{if index $.SelCols "overhours"}}checked{{end}}>加班小时</label>
-              <label><input type="checkbox" name="cols" value="overdays" {{if index $.SelCols "overdays"}}checked{{end}}>加班天数</label>
-              <label><input type="checkbox" name="cols" value="normalot" {{if index $.SelCols "normalot"}}checked{{end}}>普通加班</label>
-              <label><input type="checkbox" name="cols" value="weekendot" {{if index $.SelCols "weekendot"}}checked{{end}}>周末加班</label>
-              <label><input type="checkbox" name="cols" value="holidayot" {{if index $.SelCols "holidayot"}}checked{{end}}>节日加班</label>
-              <label><input type="checkbox" name="cols" value="latemins" {{if index $.SelCols "latemins"}}checked{{end}}>迟到分钟</label>
-              <label><input type="checkbox" name="cols" value="earlymins" {{if index $.SelCols "earlymins"}}checked{{end}}>早退分钟</label>
-              <label><input type="checkbox" name="cols" value="leavehours" {{if index $.SelCols "leavehours"}}checked{{end}}>请假小时</label>
+              {{range .ColOptions}}
+              <label><input type="checkbox" name="cols" value="{{.key}}" {{if index $.SelCols .key}}checked{{end}}>{{.label}}</label>
+              {{end}}
             </div>
             <div class="modal-actions">
               <button type="submit" class="primary">应用</button>
@@ -620,16 +590,9 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
     <td class="over {{if index $.Weekend $d}}weekend{{end}} {{if .Over}}hasval{{else}}empty{{end}}" width="24">{{.Over}}</td>
     {{end}}
     {{end}}
-    {{with index $.SumStr (printf "%d" $uid) }}
-    {{if index $.Show "present"}}<td class="sum-col">{{.PresentDays}}</td>{{end}}
-    {{if index $.Show "overhours"}}<td class="sum-col">{{.OverHours}}</td>{{end}}
-    {{if index $.Show "overdays"}}<td class="sum-col">{{.OverDays}}</td>{{end}}
-    {{if index $.Show "normalot"}}<td class="sum-col">{{.NormalOT}}</td>{{end}}
-    {{if index $.Show "weekendot"}}<td class="sum-col">{{.WeekendOT}}</td>{{end}}
-    {{if index $.Show "holidayot"}}<td class="sum-col">{{.HolidayOT}}</td>{{end}}
-    {{if index $.Show "latemins"}}<td class="sum-col">{{.LateMins}}</td>{{end}}
-    {{if index $.Show "earlymins"}}<td class="sum-col">{{.EarlyMins}}</td>{{end}}
-    {{if index $.Show "leavehours"}}<td class="sum-col">{{.LeaveHours}}</td>{{end}}
+    {{ $sum := index $.SumStr (printf "%d" $uid) }}
+    {{range $.SumValueOrder}}
+    <td class="sum-col">{{index $sum .}}</td>
     {{end}}
     </tr>
     {{end}}
@@ -642,10 +605,7 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
 
 	t, _ := template.New("html").Parse(tpl)
 
-	var days []int
-	for i := 1; i <= dayCount; i++ {
-		days = append(days, i)
-	}
+	now := time.Now()
 	var years []int
 	for i := now.Year() - 1; i <= now.Year()+1; i++ {
 		years = append(years, i)
@@ -666,22 +626,14 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
 		weekNames[i] = names[int(wd)]
 	}
 
-	leavesIdx, _ := service.QueryLeaveSymbols(ctx, firstDay, lastDay)
-	leaveSumIdx := map[int]float64{}
-	for _, r := range leavesIdx {
-		val := extractFloat(r.Symbol)
-		leaveSumIdx[r.UserID] += val
-	}
-	for uid, v := range leaveSumIdx {
-		s := sum[uid]
-		s.LeaveHours += v
-		sum[uid] = s
-	}
+	show := mModel.Show
+	data := mModel.Daily
+	sum := mModel.Sum
 
 	obj := map[string]any{
 		"Year":      y,
 		"Month":     m,
-		"Days":      days,
+		"Days":      mModel.Days,
 		"Users":     users,
 		"Data":      wrapData(data),
 		"Sum":       wrapSum(sum),
@@ -721,25 +673,28 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
 		"IdentityHeaders": identityHeaders(),
 		"SumHeaderTitles": func() []string {
 			titles := []string{}
-			mp := map[string]string{
-				"present":    "出勤\n天数",
-				"overhours":  "加班\n小时",
-				"overdays":   "加班\n天数",
-				"normalot":   "普通\n加班",
-				"weekendot":  "周末\n加班",
-				"holidayot":  "节日\n加班",
-				"latemins":   "迟到\n分钟",
-				"earlymins":  "早退\n分钟",
-				"leavehours": "请假\n小时",
-			}
-			for k, v := range show {
-				if v {
-					if t, ok := mp[k]; ok {
-						titles = append(titles, t)
-					}
+			for _, c := range allColumns() {
+				if show[c.Key] {
+					titles = append(titles, c.Title)
 				}
 			}
 			return titles
+		}(),
+		"SumValueOrder": func() []string {
+			order := []string{}
+			for _, c := range allColumns() {
+				if show[c.Key] {
+					order = append(order, c.SumField)
+				}
+			}
+			return order
+		}(),
+		"ColOptions": func() []map[string]string {
+			var opts []map[string]string
+			for _, c := range allColumns() {
+				opts = append(opts, map[string]string{"key": c.Key, "label": c.Title})
+			}
+			return opts
 		}(),
 	}
 
