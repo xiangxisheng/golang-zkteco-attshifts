@@ -5,11 +5,13 @@ import (
     "fmt"
     "io"
     "net/http"
+    "time"
 )
 
 func renderCSVModel(w http.ResponseWriter, m ReportModel) {
     w.Header().Set("Content-Type", "text/csv")
-    w.Header().Set("Content-Disposition", "attachment; filename=att.csv")
+    ts := time.Now().Format("20060102_150405")
+    w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=att_%s.csv", ts))
     w.Write([]byte("\xEF\xBB\xBF"))
     cw := csv.NewWriter(w)
     defer cw.Flush()
@@ -34,7 +36,8 @@ func renderCSVModel(w http.ResponseWriter, m ReportModel) {
 
 func renderXLSModel(w http.ResponseWriter, m ReportModel) {
     w.Header().Set("Content-Type", "application/vnd.ms-excel")
-    w.Header().Set("Content-Disposition", "attachment; filename=att.xls")
+    ts := time.Now().Format("20060102_150405")
+    w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=att_%s.xls", ts))
     w.Write([]byte("\xEF\xBB\xBF"))
     fmt.Fprint(w, "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>att</title></head><body>")
     fmt.Fprint(w, "<table border=1>")
@@ -103,7 +106,8 @@ func renderXLSModel(w http.ResponseWriter, m ReportModel) {
 
 func renderHTMLModel(w http.ResponseWriter, m ReportModel) {
     w.Header().Set("Content-Type", "text/html; charset=utf-8")
-    w.Header().Set("Content-Disposition", "attachment; filename=att.html")
+    ts := time.Now().Format("20060102_150405")
+    w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=att_%s.html", ts))
     io.WriteString(w, "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>att</title><style>table{border-collapse:collapse}td,th{border:1px solid #999;padding:4px;font-size:12px}th{background:#f1f5f9}tr:nth-child(even){background:#f9fafb}td{text-align:center}</style></head><body>")
     weekend, weekNames := computeWeekInfo(m.Year, m.Month)
     io.WriteString(w, renderGridTableHTML(m, weekend, weekNames))
