@@ -219,35 +219,16 @@ func renderCSVModel(w http.ResponseWriter, m ReportModel) {
 	cw := csv.NewWriter(w)
 	defer cw.Flush()
 
-	row := []string{"工号", "姓名", "部门"}
-	if m.Mode == "all" || m.Mode == "work" || m.Mode == "over" {
-		for _, d := range m.Days {
-			if m.Mode == "all" || m.Mode == "work" {
-				row = append(row, fmt.Sprintf("%d号上班", d))
-			}
-			if m.Mode == "all" || m.Mode == "over" {
-				row = append(row, fmt.Sprintf("%d号加班", d))
-			}
-		}
-	}
+	row := append([]string{}, identityHeaders()...)
+	row = append(row, dailyHeaderTitles(m)...)
 	for _, c := range visibleColumns(m) {
 		row = append(row, c.Title)
 	}
 	cw.Write(row)
 
 	for _, u := range m.Users {
-		r := []string{u.Badge, u.Name, u.DeptName}
-		if m.Mode == "all" || m.Mode == "work" || m.Mode == "over" {
-			for _, d := range m.Days {
-				v := m.Daily[u.UserID][d]
-				if m.Mode == "all" || m.Mode == "work" {
-					r = append(r, v.Work)
-				}
-				if m.Mode == "all" || m.Mode == "over" {
-					r = append(r, v.Over)
-				}
-			}
-		}
+		r := append([]string{}, identityRow(u)...)
+		r = append(r, dailyRowValues(m, u.UserID)...)
 		s := m.Sum[u.UserID]
 		for _, c := range visibleColumns(m) {
 			r = append(r, c.Value(s))
@@ -296,16 +277,12 @@ func renderHTMLModel(w http.ResponseWriter, m ReportModel) {
 	w.Header().Set("Content-Disposition", "attachment; filename=att.html")
 	io.WriteString(w, "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>att</title><style>table{border-collapse:collapse}td,th{border:1px solid #999;padding:4px;font-size:12px}th{background:#f1f5f9}tr:nth-child(even){background:#f9fafb}td{text-align:center}</style></head><body>")
 	fmt.Fprint(w, "<table>")
-	fmt.Fprint(w, "<tr><th>工号</th><th>姓名</th><th>部门</th>")
-	if m.Mode == "all" || m.Mode == "work" || m.Mode == "over" {
-		for _, d := range m.Days {
-			if m.Mode == "all" || m.Mode == "work" {
-				fmt.Fprintf(w, "<th>%d上</th>", d)
-			}
-			if m.Mode == "all" || m.Mode == "over" {
-				fmt.Fprintf(w, "<th>%d加</th>", d)
-			}
-		}
+	fmt.Fprint(w, "<tr>")
+	for _, h := range identityHeaders() {
+		fmt.Fprintf(w, "<th>%s</th>", h)
+	}
+	for _, h := range dailyHeaderTitles(m) {
+		fmt.Fprintf(w, "<th>%s</th>", h)
 	}
 	for _, c := range visibleColumns(m) {
 		fmt.Fprintf(w, "<th>%s</th>", c.Title)
@@ -617,22 +594,16 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
     <div id="loading" class="modal hidden"><div class="modal-content"><span>处理中...</span></div></div>
     <table class="grid">
     <tr align="center">
-    <th style="min-width: 60px; width: 60px;">工号</th>
-    <th style="min-width: 90px; width: 90px;">姓名</th>
-    <th style="min-width: 90px; width: 90px;">部门</th>
+    {{range .IdentityHeaders}}
+    <th>{{.}}</th>
+    {{end}}
     {{range .Days}}
     <th class="{{if index $.Weekend .}}weekend{{end}}">{{.}}<br><span class="wk">{{index $.WeekNames .}}</span><br>上</th>
     <th class="{{if index $.Weekend .}}weekend{{end}}">{{.}}<br><span class="wk">{{index $.WeekNames .}}</span><br>加</th>
     {{end}}
-    {{if index $.Show "present"}}<th class="sum-col"><span>出勤</span><br><span>天数</span></th>{{end}}
-    {{if index $.Show "overhours"}}<th class="sum-col"><span>加班</span><br><span>小时</span></th>{{end}}
-    {{if index $.Show "overdays"}}<th class="sum-col"><span>加班</span><br><span>天数</span></th>{{end}}
-    {{if index $.Show "normalot"}}<th class="sum-col"><span>普通</span><br><span>加班</span></th>{{end}}
-    {{if index $.Show "weekendot"}}<th class="sum-col"><span>周末</span><br><span>加班</span></th>{{end}}
-    {{if index $.Show "holidayot"}}<th class="sum-col"><span>节日</span><br><span>加班</span></th>{{end}}
-    {{if index $.Show "latemins"}}<th class="sum-col"><span>迟到</span><br><span>分钟</span></th>{{end}}
-    {{if index $.Show "earlymins"}}<th class="sum-col"><span>早退</span><br><span>分钟</span></th>{{end}}
-    {{if index $.Show "leavehours"}}<th class="sum-col"><span>请假</span><br><span>小时</span></th>{{end}}
+    {{range .SumHeaderTitles}}
+    <th class="sum-col">{{.}}</th>
+    {{end}}
     </tr>
 
     {{range .Users}}
@@ -746,6 +717,29 @@ func handlerIndex(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			return m
+		}(),
+		"IdentityHeaders": identityHeaders(),
+		"SumHeaderTitles": func() []string {
+			titles := []string{}
+			mp := map[string]string{
+				"present":    "出勤\n天数",
+				"overhours":  "加班\n小时",
+				"overdays":   "加班\n天数",
+				"normalot":   "普通\n加班",
+				"weekendot":  "周末\n加班",
+				"holidayot":  "节日\n加班",
+				"latemins":   "迟到\n分钟",
+				"earlymins":  "早退\n分钟",
+				"leavehours": "请假\n小时",
+			}
+			for k, v := range show {
+				if v {
+					if t, ok := mp[k]; ok {
+						titles = append(titles, t)
+					}
+				}
+			}
+			return titles
 		}(),
 	}
 
