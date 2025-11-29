@@ -38,28 +38,62 @@ func renderXLSModel(w http.ResponseWriter, m ReportModel) {
     w.Write([]byte("\xEF\xBB\xBF"))
     fmt.Fprint(w, "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>att</title></head><body>")
     fmt.Fprint(w, "<table border=1>")
+
+    // header row 1: identity (rowspan=2), per-day (colspan=2), grouped sum (others rowspan, then overtime/leave colspan)
     fmt.Fprint(w, "<tr>")
     for _, h := range identityHeaders() {
-        fmt.Fprintf(w, "<th>%s</th>", h)
+        fmt.Fprintf(w, "<th rowspan=\"2\">%s</th>", h)
     }
-    for _, h := range dailyHeaderTitles(m) {
-        fmt.Fprintf(w, "<th>%s</th>", h)
+    _, weekNames := computeWeekInfo(m.Year, m.Month)
+    for _, d := range m.Days {
+        fmt.Fprintf(w, "<th colspan=\"2\">%d<br><span class=\"wk\">%s</span></th>", d, weekNames[d])
     }
-    for _, c := range orderedVisibleColumns(m) {
+    otherCols, overtimeCols, leaveCols := orderedVisibleColumns(m)[:0], orderedVisibleColumns(m)[:0], orderedVisibleColumns(m)[:0]
+    // recompute groups once
+    otherCols, overtimeCols, leaveCols = groupSumColumns(m)
+    for _, c := range otherCols {
+        fmt.Fprintf(w, "<th rowspan=\"2\">%s</th>", c.Title)
+    }
+    if len(overtimeCols) > 0 {
+        fmt.Fprintf(w, "<th colspan=\"%d\">加班</th>", len(overtimeCols))
+    }
+    if len(leaveCols) > 0 {
+        fmt.Fprintf(w, "<th colspan=\"%d\">请假</th>", len(leaveCols))
+    }
+    fmt.Fprint(w, "</tr>")
+
+    // header row 2: per-day subheaders and grouped sum subheaders
+    fmt.Fprint(w, "<tr>")
+    for range m.Days {
+        fmt.Fprint(w, "<th>上</th><th>加</th>")
+    }
+    for _, c := range overtimeCols {
+        fmt.Fprintf(w, "<th>%s</th>", c.Title)
+    }
+    for _, c := range leaveCols {
         fmt.Fprintf(w, "<th>%s</th>", c.Title)
     }
     fmt.Fprint(w, "</tr>")
 
+    // data rows
     for _, u := range m.Users {
         fmt.Fprint(w, "<tr>")
         fmt.Fprintf(w, "<td>%s</td>", u.Badge)
         fmt.Fprintf(w, "<td>%s</td>", u.Name)
         fmt.Fprintf(w, "<td>%s</td>", u.DeptName)
-        for _, v := range dailyRowValues(m, u.UserID) {
-            fmt.Fprintf(w, "<td>%s</td>", v)
+        for _, d := range m.Days {
+            v := m.Daily[u.UserID][d]
+            fmt.Fprintf(w, "<td>%s</td>", v.Work)
+            fmt.Fprintf(w, "<td>%s</td>", v.Over)
         }
         s := m.Sum[u.UserID]
-        for _, c := range orderedVisibleColumns(m) {
+        for _, c := range otherCols {
+            fmt.Fprintf(w, "<td>%s</td>", c.Value(s))
+        }
+        for _, c := range overtimeCols {
+            fmt.Fprintf(w, "<td>%s</td>", c.Value(s))
+        }
+        for _, c := range leaveCols {
             fmt.Fprintf(w, "<td>%s</td>", c.Value(s))
         }
         fmt.Fprint(w, "</tr>")
