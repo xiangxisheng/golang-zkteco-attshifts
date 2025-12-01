@@ -10,12 +10,13 @@ func allColumns() []Column {
 		{Key: "holidayot", Title: "节日加班", SumField: "HolidayOT", Value: func(s SumValue) string { return formatFloat(s.HolidayOT) }, Default: true},
 		{Key: "latemins", Title: "迟到分钟", SumField: "LateMins", Value: func(s SumValue) string { return format0f(s.LateMins) }, Default: true},
 		{Key: "earlymins", Title: "早退分钟", SumField: "EarlyMins", Value: func(s SumValue) string { return format0f(s.EarlyMins) }, Default: true},
-		{Key: "leavehours", Title: "请假小时", SumField: "LeaveHours", Value: func(s SumValue) string { return format2f(s.LeaveHours) }, Default: true},
-		{Key: "e1", Title: "公出", SumField: "E1", Value: func(s SumValue) string { return format2f(s.E1Business) }, Default: true},
-		{Key: "e2", Title: "病假", SumField: "E2", Value: func(s SumValue) string { return format2f(s.E2Sick) }, Default: true},
-		{Key: "e3", Title: "事假", SumField: "E3", Value: func(s SumValue) string { return format2f(s.E3Personal) }, Default: true},
-		{Key: "e4", Title: "探亲", SumField: "E4", Value: func(s SumValue) string { return format2f(s.E4Home) }, Default: true},
-		{Key: "e5", Title: "年假", SumField: "E5", Value: func(s SumValue) string { return format2f(s.E5Annual) }, Default: true},
+		{Key: "leavehours", Title: "请假天数", SumField: "LeaveHours", Value: func(s SumValue) string { return formatPresent(s.LeaveHours) }, Default: true},
+		{Key: "leavehoursh", Title: "请假小时", SumField: "LeaveHoursH", Value: func(s SumValue) string { return formatFloat(s.LeaveHoursH) }, Default: false},
+        {Key: "e1", Title: "公出", SumField: "E1", Value: func(s SumValue) string { return formatPresent(s.E1Business) }, Default: true},
+        {Key: "e2", Title: "病假", SumField: "E2", Value: func(s SumValue) string { return formatPresent(s.E2Sick) }, Default: true},
+        {Key: "e3", Title: "事假", SumField: "E3", Value: func(s SumValue) string { return formatPresent(s.E3Personal) }, Default: true},
+        {Key: "e4", Title: "探亲", SumField: "E4", Value: func(s SumValue) string { return formatPresent(s.E4Home) }, Default: true},
+        {Key: "e5", Title: "年假", SumField: "E5", Value: func(s SumValue) string { return formatPresent(s.E5Annual) }, Default: true},
 	}
 }
 
@@ -31,7 +32,7 @@ func visibleColumns(m ReportModel) []Column {
 
 func groupSumColumns(m ReportModel) (other []Column, overtime []Column, leave []Column) {
 	overtimeKeys := map[string]bool{"overhours": true, "normalot": true, "weekendot": true, "holidayot": true}
-	leaveKeys := map[string]bool{"leavehours": true, "e1": true, "e2": true, "e3": true, "e4": true, "e5": true}
+    leaveKeys := map[string]bool{"leavehours": true, "leavehoursh": true, "e1": true, "e2": true, "e3": true, "e4": true, "e5": true}
 	for _, c := range visibleColumns(m) {
 		if overtimeKeys[c.Key] {
 			overtime = append(overtime, c)

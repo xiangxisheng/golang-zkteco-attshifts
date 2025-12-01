@@ -147,11 +147,13 @@ type LeaveSymbolRow struct {
     UserID      int
     ExceptionID int
     Symbol      string
+    AttDate     time.Time
+    Required    float64
 }
 
 func QueryLeaveSymbols(ctx context.Context, start, end time.Time) ([]LeaveSymbolRow, error) {
     sqlStr := `
-    SELECT userid, exceptionid, symbol
+    SELECT userid, exceptionid, symbol, attdate, ISNULL(workday,0) AS required
     FROM attshifts
     WHERE attdate BETWEEN @p1 AND @p2
       AND exceptionid IS NOT NULL
@@ -167,7 +169,7 @@ func QueryLeaveSymbols(ctx context.Context, start, end time.Time) ([]LeaveSymbol
 	list := []LeaveSymbolRow{}
     for rows.Next() {
         var r LeaveSymbolRow
-        rows.Scan(&r.UserID, &r.ExceptionID, &r.Symbol)
+        rows.Scan(&r.UserID, &r.ExceptionID, &r.Symbol, &r.AttDate, &r.Required)
         list = append(list, r)
     }
     return list, nil

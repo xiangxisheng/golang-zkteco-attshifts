@@ -14,6 +14,7 @@ type SumValue struct {
     LateMins    float64
     EarlyMins   float64
     LeaveHours  float64
+    LeaveHoursH float64
     NormalOT    float64
     WeekendOT   float64
     HolidayOT   float64

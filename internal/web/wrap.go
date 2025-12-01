@@ -31,15 +31,16 @@ func wrapSumStr(data map[int]SumValue) map[string]map[string]string {
             "OverDays":    format0f(v.OverDays),
             "LateMins":    format0f(v.LateMins),
             "EarlyMins":   format0f(v.EarlyMins),
-            "LeaveHours":  format2f(v.LeaveHours),
+            "LeaveHours":  formatPresent(v.LeaveHours),
+            "LeaveHoursH": formatFloat(v.LeaveHoursH),
             "NormalOT":    formatFloat(v.NormalOT),
             "WeekendOT":   formatFloat(v.WeekendOT),
             "HolidayOT":   formatFloat(v.HolidayOT),
-            "E1":          format2f(v.E1Business),
-            "E2":          format2f(v.E2Sick),
-            "E3":          format2f(v.E3Personal),
-            "E4":          format2f(v.E4Home),
-            "E5":          format2f(v.E5Annual),
+            "E1":          formatPresent(v.E1Business),
+            "E2":          formatPresent(v.E2Sick),
+            "E3":          formatPresent(v.E3Personal),
+            "E4":          formatPresent(v.E4Home),
+            "E5":          formatPresent(v.E5Annual),
         }
     }
     return out

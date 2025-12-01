@@ -13,7 +13,15 @@ func formatFloat(f float64) string {
     if f == float64(int64(f)) {
         return fmt.Sprintf("%d", int64(f))
     }
-    return strconv.FormatFloat(f, 'f', -1, 64)
+    s := strconv.FormatFloat(f, 'f', -1, 64)
+    if i := strings.IndexByte(s, '.'); i >= 0 {
+        if len(s)-i-1 > 3 {
+            s = strconv.FormatFloat(f, 'f', 3, 64)
+            s = strings.TrimRight(s, "0")
+            s = strings.TrimRight(s, ".")
+        }
+    }
+    return s
 }
 
 func format2f(f float64) string {
@@ -23,7 +31,15 @@ func format2f(f float64) string {
     if f == float64(int64(f)) {
         return fmt.Sprintf("%d", int64(f))
     }
-    return strconv.FormatFloat(f, 'f', -1, 64)
+    s := strconv.FormatFloat(f, 'f', -1, 64)
+    if i := strings.IndexByte(s, '.'); i >= 0 {
+        if len(s)-i-1 > 3 {
+            s = strconv.FormatFloat(f, 'f', 3, 64)
+            s = strings.TrimRight(s, "0")
+            s = strings.TrimRight(s, ".")
+        }
+    }
+    return s
 }
 
 func format0f(f float64) string { return strconv.FormatFloat(f, 'f', 0, 64) }
@@ -37,8 +53,10 @@ func formatPresent(f float64) string {
     }
     s := strconv.FormatFloat(f, 'f', -1, 64)
     if i := strings.IndexByte(s, '.'); i >= 0 {
-        if len(s)-i-1 > 2 {
-            return fmt.Sprintf("%d", int64(f))
+        if len(s)-i-1 > 3 {
+            s = strconv.FormatFloat(f, 'f', 3, 64)
+            s = strings.TrimRight(s, "0")
+            s = strings.TrimRight(s, ".")
         }
     }
     return s
