@@ -9,6 +9,7 @@ type DayValue struct {
 
 type SumValue struct {
     PresentDays float64
+    AbsentDays  float64
     OverHours   float64
     OverDays    float64
     LateMins    float64

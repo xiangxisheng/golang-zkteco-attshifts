@@ -27,6 +27,7 @@ func wrapSumStr(data map[int]SumValue) map[string]map[string]string {
     for uid, v := range data {
         out[strconv.Itoa(uid)] = map[string]string{
             "PresentDays": formatPresent(v.PresentDays),
+            "AbsentDays":  formatPresent(v.AbsentDays),
             "OverHours":   formatFloat(v.OverHours),
             "OverDays":    format0f(v.OverDays),
             "LateMins":    format0f(v.LateMins),

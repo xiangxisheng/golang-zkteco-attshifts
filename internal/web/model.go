@@ -88,6 +88,10 @@ func buildModel(ctx context.Context, r *http.Request) (ReportModel, error) {
 		s := sum[uid]
 		if row.Required > 0 {
 			s.PresentDays += row.Work / row.Required
+			missing := row.Required - row.Work
+			if missing > 0 {
+				s.AbsentDays += missing / row.Required
+			}
 		}
 		if row.Over > 0 {
 			s.OverDays += 1
