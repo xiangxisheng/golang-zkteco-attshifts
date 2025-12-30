@@ -37,14 +37,14 @@ func RegisterRoutes(cfg config.Config) {
     fsRoot := http.FileServer(http.Dir(root))
     http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
         if r.URL.Path == "/" {
-            handlerIndex(w, r)
+            LicenseGuard(handlerIndex)(w, r)
             return
         }
         fsRoot.ServeHTTP(w, r)
     })
-    http.HandleFunc("/download", handlerDownload)
-    http.HandleFunc("/download.xls", handlerDownloadXLS)
-    http.HandleFunc("/download.html", handlerDownloadHTML)
+    http.HandleFunc("/download", LicenseGuard(handlerDownload))
+    http.HandleFunc("/download.xls", LicenseGuard(handlerDownloadXLS))
+    http.HandleFunc("/download.html", LicenseGuard(handlerDownloadHTML))
 }
 
 func handlerIndex(w http.ResponseWriter, r *http.Request) {

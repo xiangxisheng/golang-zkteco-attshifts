@@ -1,0 +1,335 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<title id="title">授权文件生成</title>
+<HTA:APPLICATION ID="LicenseTool" APPLICATIONNAME="LicenseTool" BORDER="thin" SCROLL="no" SINGLEINSTANCE="yes" SYSMENU="yes" CAPTION="yes" />
+<style>
+body{font-family:sans-serif;padding:20px}
+label{display:block;margin-top:12px}
+input[type=text],textarea,select{width:100%;padding:8px;box-sizing:border-box}
+button{margin-top:16px;padding:8px 16px}
+.row{margin-top:8px}
+.msg{margin-top:12px;color:#2563eb}
+.err{margin-top:12px;color:#dc2626}
+</style>
+<script type="text/javascript">
+var SECRET="FBTech2025-License-Key";
+var I18N={
+  "zh-CN":{
+    title:"授权文件生成",
+    lang_label:"语言",
+    perm_err_hint:"没有写入权限，请以管理员运行或将HTA放到可写目录",
+    read_btn:"读取授权文件",
+    path_label:"当前目录",
+    sig_label:"签名",
+    page_title_label:"页面标题",
+    missing_label:"未授权提示",
+    invalid_label:"校验失败提示",
+    footer_label:"底部说明",
+    page_title_default:"无法访问",
+    missing_default:"未授权，请使用授权工具生成 license.json 并放置到程序目录。",
+    invalid_default:"授权文件校验失败，请确认过期日期与签名是否正确。",
+    footer_default:"请使用授权工具生成 license.json 并放置到程序目录。",
+    status_ok:"授权有效",
+    status_invalid:"授权无效",
+    status_missing:"未找到授权文件",
+    status_expired:"授权已过期",
+    expiry_label:"过期日期（YYYY-MM-DD）",
+    expiry_ph:"例如 2026-12-31",
+    message_label:"过期后的提示内容",
+    message_ph:"授权已过期，请联系管理员",
+    gen_btn:"生成授权文件",
+    date_err:"日期格式应为YYYY-MM-DD",
+    gen_ok:"已生成: ",
+    gen_fail:"写入失败: "
+  },
+  "en-US":{
+    title:"License File Generator",
+    lang_label:"Language",
+    perm_err_hint:"No write permission, run as Administrator or move HTA to a writable folder",
+    read_btn:"Load License",
+    path_label:"Current Directory",
+    sig_label:"Signature",
+    page_title_label:"Page Title",
+    missing_label:"Missing Message",
+    invalid_label:"Invalid Message",
+    footer_label:"Footer Note",
+    page_title_default:"Access Denied",
+    missing_default:"No license found. Please generate license.json and place it in the program directory.",
+    invalid_default:"License verification failed. Please check expiry date and signature.",
+    footer_default:"Please generate license.json with the authorization tool and place it in the program directory.",
+    status_ok:"License valid",
+    status_invalid:"License invalid",
+    status_missing:"License file not found",
+    status_expired:"License expired",
+    expiry_label:"Expiry Date (YYYY-MM-DD)",
+    expiry_ph:"e.g. 2026-12-31",
+    message_label:"Message after expiration",
+    message_ph:"License expired, please contact administrator",
+    gen_btn:"Generate License",
+    date_err:"Date format must be YYYY-MM-DD",
+    gen_ok:"Generated: ",
+    gen_fail:"Write failed: "
+  }
+};
+function crcTable(){
+  var c, t=[];
+  for(var n=0;n<256;n++){
+    c=n;
+    for(var k=0;k<8;k++){
+      c=((c&1)?(0xEDB88320^(c>>>1)):(c>>>1));
+    }
+    t[n]=c>>>0;
+  }
+  return t;
+}
+var CRC32_TABLE=crcTable();
+function utf8Bytes(s){
+  var e=encodeURIComponent(s);
+  var bytes=[];
+  for(var i=0;i<e.length;i++){
+    var c=e.charAt(i);
+    if(c==='%' && i+2<e.length){
+      bytes.push(parseInt(e.substr(i+1,2),16));
+      i+=2;
+    }else{
+      bytes.push(c.charCodeAt(0));
+    }
+  }
+  return bytes;
+}
+function crc32(s){
+  var crc=0 ^ (-1);
+  var b=utf8Bytes(s);
+  for(var i=0;i<b.length;i++){
+    var y=(crc ^ b[i]) & 0xFF;
+    crc=(crc>>>8) ^ CRC32_TABLE[y];
+  }
+  return (crc ^ (-1)) >>> 0;
+}
+function hex8(n){
+  var h=n.toString(16);
+  while(h.length<8) h="0"+h;
+  return h;
+}
+function todayISO(){
+  var d=new Date();
+  var y=d.getFullYear();
+  var m=d.getMonth()+1;
+  var dd=d.getDate();
+  if(m<10) m="0"+m;
+  if(dd<10) dd="0"+dd;
+  return y+"-"+m+"-"+dd;
+}
+function getFolder(){
+  var raw=(document.URL||document.location.href||document.location.pathname||"");
+  var p=raw;
+  if(p.indexOf("file:///")==0){
+    p=p.substring(8);
+  }else if(p.indexOf("file://")==0){
+    p=p.substring(7);
+  }else{
+    p=(document.location.pathname||"");
+  }
+  p=decodeURIComponent(p);
+  p=p.replace(/\//g,"\\");
+  if(p.charAt(0)=="\\"){ p=p.substring(1); }
+  try{
+    var fso=new ActiveXObject("Scripting.FileSystemObject");
+    var folder=fso.GetParentFolderName(p);
+    if(folder && folder.length>0){ return folder+"\\"; }
+  }catch(e){}
+  return "";
+}
+function saveUTF8(path, text){
+  var stm=new ActiveXObject("ADODB.Stream");
+  stm.Type=2;
+  stm.Charset="utf-8";
+  stm.Open();
+  stm.WriteText(text);
+  stm.SaveToFile(path,2);
+  stm.Close();
+}
+function applyLang(){
+  var lang=document.getElementById("lang").value;
+  var t=I18N[lang]||I18N["zh-CN"];
+  document.getElementById("title").innerText=t.title;
+  document.getElementById("h1").innerText=t.title;
+  document.getElementById("lang_label").innerText=t.lang_label;
+  document.getElementById("expiry_label").innerText=t.expiry_label;
+  document.getElementById("expiry").placeholder=t.expiry_ph;
+  document.getElementById("message_label").innerText=t.message_label;
+  document.getElementById("message").placeholder=t.message_ph;
+  document.getElementById("gen_btn").innerText=t.gen_btn;
+  document.getElementById("read_btn").innerText=t.read_btn;
+  document.getElementById("path_label").innerText=t.path_label;
+  document.getElementById("sig_label").innerText=t.sig_label;
+  document.getElementById("page_title_label").innerText=t.page_title_label;
+  document.getElementById("missing_label").innerText=t.missing_label;
+  document.getElementById("invalid_label").innerText=t.invalid_label;
+  document.getElementById("footer_label").innerText=t.footer_label;
+}
+function detectLang(){
+  var l=(navigator.userLanguage||navigator.browserLanguage||"zh-CN").toLowerCase();
+  if(l.indexOf("zh")===0){return "zh-CN";}
+  return "en-US";
+}
+function readUTF8(path){
+  var stm=new ActiveXObject("ADODB.Stream");
+  stm.Type=2;
+  stm.Charset="utf-8";
+  stm.Open();
+  stm.LoadFromFile(path);
+  var s=stm.ReadText();
+  stm.Close();
+  if(s && s.length>0 && s.charCodeAt(0)===0xFEFF){ s=s.substring(1); }
+  return s;
+}
+function parseDate(expiry){
+  var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(expiry);
+  if(!m) return null;
+  var y=parseInt(m[1],10), mo=parseInt(m[2],10)-1, d=parseInt(m[3],10);
+  return new Date(y,mo,d);
+}
+function validateStatus(obj){
+  var lang=document.getElementById("lang").value;
+  var t=I18N[lang]||I18N["zh-CN"];
+  if(!obj){ return t.status_missing; }
+  var exp=obj.expiry||"";
+  var msg=obj.message||"";
+  var sig=obj.signature||"";
+  var expect=hex8(crc32(exp+"|"+msg+"|"+SECRET));
+  if(!exp || !sig || sig.toLowerCase()!==expect.toLowerCase()){
+    return t.status_invalid;
+  }
+  var d=parseDate(exp);
+  if(!d){ return t.status_invalid; }
+  var now=new Date();
+  if(now.getTime()>(d.getTime()+24*3600*1000)){
+    return t.status_expired;
+  }
+  return t.status_ok;
+}
+function load(){
+  var path=getFolder()+"license.json";
+  var info=document.getElementById("info");
+  var error=document.getElementById("error");
+  var status=document.getElementById("status");
+  var lang=document.getElementById("lang").value;
+  var t=I18N[lang]||I18N["zh-CN"];
+  error.innerText="";
+  try{
+    var json=readUTF8(path);
+    var obj=null;
+    try{ obj=JSON.parse(json); }catch(e){}
+    status.innerText=validateStatus(obj);
+    if(obj){
+      document.getElementById("expiry").value=(obj.expiry||todayISO());
+      document.getElementById("message").value=(obj.message||t.message_ph);
+      document.getElementById("sig").value=obj.signature||"";
+      document.getElementById("title_text").value=(obj.title||t.page_title_default);
+      document.getElementById("missing").value=(obj.missing||t.missing_default);
+      document.getElementById("invalid").value=(obj.invalid||t.invalid_default);
+      document.getElementById("footer").value=(obj.footer||t.footer_default);
+      info.innerText="";
+    }else{
+      document.getElementById("expiry").value=todayISO();
+      document.getElementById("message").value=t.message_ph;
+      document.getElementById("title_text").value=t.page_title_default;
+      document.getElementById("missing").value=t.missing_default;
+      document.getElementById("invalid").value=t.invalid_default;
+      document.getElementById("footer").value=t.footer_default;
+      info.innerText="";
+    }
+  }catch(e){
+    status.innerText=validateStatus(null);
+    document.getElementById("expiry").value=todayISO();
+    document.getElementById("message").value=t.message_ph;
+    document.getElementById("title_text").value=t.page_title_default;
+    document.getElementById("missing").value=t.missing_default;
+    document.getElementById("invalid").value=t.invalid_default;
+    document.getElementById("footer").value=t.footer_default;
+  }
+  document.getElementById("path").innerText=getFolder();
+}
+function gen(){
+  var lang=document.getElementById("lang").value;
+  var t=I18N[lang]||I18N["zh-CN"];
+  var expiry=document.getElementById("expiry").value.trim();
+  var message=document.getElementById("message").value.trim()||t.message_ph;
+  var path=getFolder()+"license.json";
+  var title=document.getElementById("title_text").value.trim()||t.page_title_default;
+  var missing=document.getElementById("missing").value.trim()||t.missing_default;
+  var invalid=document.getElementById("invalid").value.trim()||t.invalid_default;
+  var footer=document.getElementById("footer").value.trim()||t.footer_default;
+  var info=document.getElementById("info");
+  var error=document.getElementById("error");
+  info.innerText="";
+  error.innerText="";
+  var re=/^\d{4}-\d{2}-\d{2}$/;
+  if(!re.test(expiry)){
+    error.innerText=t.date_err;
+    return;
+  }
+  var payload=expiry+"|"+message+"|"+SECRET;
+  var sig=hex8(crc32(payload));
+  var obj={expiry:expiry,message:message,signature:sig,title:title,missing:missing,invalid:invalid,footer:footer};
+  var json=JSON.stringify(obj,null,2);
+  try{
+    saveUTF8(path,json);
+    info.innerText=t.gen_ok+path;
+    document.getElementById("sig").value=sig;
+    document.getElementById("status").innerText=validateStatus(obj);
+  }catch(e){
+    var msg=t.gen_fail+e.message;
+    if(e.number===-2147024891){
+      msg+="; "+t.perm_err_hint;
+    }
+    error.innerText=msg;
+  }
+}
+function init(){
+  var d=detectLang();
+  var sel=document.getElementById("lang");
+  sel.value=d;
+  applyLang();
+  document.getElementById("path").innerText=getFolder();
+  load();
+}
+</script>
+</head>
+<body onload="init()">
+<h1 id="h1">授权文件生成</h1>
+<div class="row">
+  <label id="lang_label">语言</label>
+  <select id="lang" onchange="applyLang()">
+    <option value="zh-CN">简体中文</option>
+    <option value="en-US">English</option>
+  </select>
+</div>
+<div class="row">
+  <label id="path_label">当前目录</label>
+  <div id="path" class="msg"></div>
+</div>
+<label id="expiry_label">过期日期（YYYY-MM-DD）</label>
+<input type="text" id="expiry" placeholder="例如 2026-12-31" />
+<label id="page_title_label">页面标题</label>
+<input type="text" id="title_text" placeholder="无法访问" />
+<label id="message_label">过期后的提示内容</label>
+<textarea id="message" rows="4" placeholder="授权已过期，请联系管理员"></textarea>
+<label id="sig_label">签名</label>
+<input type="text" id="sig" readonly />
+<label id="missing_label">未授权提示</label>
+<textarea id="missing" rows="3" placeholder=""></textarea>
+<label id="invalid_label">校验失败提示</label>
+<textarea id="invalid" rows="3" placeholder=""></textarea>
+<label id="footer_label">底部说明</label>
+<textarea id="footer" rows="3" placeholder=""></textarea>
+<div id="status" class="msg"></div>
+<button id="gen_btn" onclick="gen()">生成授权文件</button>
+<button id="read_btn" onclick="load()">读取授权文件</button>
+<div id="info" class="msg"></div>
+<div id="error" class="err"></div>
+</body>
+</html>
