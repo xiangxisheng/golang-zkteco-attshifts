@@ -62,6 +62,8 @@ func buildModel(ctx context.Context, r *http.Request) (ReportModel, error) {
 	lastDay := firstDay.AddDate(0, 1, -1)
 	dayCount := lastDay.Day()
 
+	setHolidays(ctx, firstDay, lastDay)
+
 	users, err := service.QueryUsersFiltered(ctx, deptIDPtr, q)
 	if err != nil {
 		return ReportModel{}, err
@@ -86,7 +88,9 @@ func buildModel(ctx context.Context, r *http.Request) (ReportModel, error) {
 		daily[uid][d] = DayValue{Work: formatFloat(row.Work), Over: formatFloat(row.Over)}
 		reqPerDay[uid][d] = row.Required
 		s := sum[uid]
-		if row.Required > 0 {
+		wd := row.AttDate.Weekday()
+		isWeekend := wd == time.Saturday || wd == time.Sunday
+		if !isWeekend && !isHoliday(row.AttDate) && row.Required > 0 {
 			s.PresentDays += row.Work / row.Required
 			missing := row.Required - row.Work
 			if missing > 0 {

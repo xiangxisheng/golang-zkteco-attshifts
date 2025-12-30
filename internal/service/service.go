@@ -174,3 +174,30 @@ func QueryLeaveSymbols(ctx context.Context, start, end time.Time) ([]LeaveSymbol
     }
     return list, nil
 }
+
+type HolidayRow struct {
+	StartTime time.Time
+	Duration  int
+	Name      string
+}
+
+func QueryHolidays(ctx context.Context, start, end time.Time) ([]HolidayRow, error) {
+	sqlStr := `
+    SELECT ISNULL(starttime, '1900-01-01'), ISNULL(duration, 0), ISNULL(holidayname, '')
+    FROM holidays
+    WHERE starttime <= @p2
+      AND DATEADD(day, ISNULL(duration,0)-1, starttime) >= @p1
+    `
+	rows, err := db.Get().QueryContext(ctx, sqlStr, start, end)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []HolidayRow{}
+	for rows.Next() {
+		var h HolidayRow
+		rows.Scan(&h.StartTime, &h.Duration, &h.Name)
+		out = append(out, h)
+	}
+	return out, nil
+}
