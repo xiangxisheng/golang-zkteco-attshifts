@@ -13,10 +13,10 @@ func allColumns() []Column {
 		{Key: "earlymins", Title: "早退分钟", SumField: "EarlyMins", Value: func(s SumValue) string { return format0f(s.EarlyMins) }, Default: true},
 		{Key: "leavehours", Title: "请假天数", SumField: "LeaveHours", Value: func(s SumValue) string { return formatPresent(s.LeaveHours) }, Default: true},
 		{Key: "leavehoursh", Title: "请假小时", SumField: "LeaveHoursH", Value: func(s SumValue) string { return formatFloat(s.LeaveHoursH) }, Default: false},
-		{Key: "e1", Title: "公出", SumField: "E1", Value: func(s SumValue) string { return formatPresent(s.E1Business) }, Default: true},
+		{Key: "e1", Title: "产检假", SumField: "E1", Value: func(s SumValue) string { return formatPresent(s.E1Business) }, Default: true},
 		{Key: "e2", Title: "病假", SumField: "E2", Value: func(s SumValue) string { return formatPresent(s.E2Sick) }, Default: true},
 		{Key: "e3", Title: "事假", SumField: "E3", Value: func(s SumValue) string { return formatPresent(s.E3Personal) }, Default: true},
-		{Key: "e4", Title: "探亲", SumField: "E4", Value: func(s SumValue) string { return formatPresent(s.E4Home) }, Default: true},
+		{Key: "e4", Title: "产假", SumField: "E4", Value: func(s SumValue) string { return formatPresent(s.E4Home) }, Default: true},
 		{Key: "e5", Title: "年假", SumField: "E5", Value: func(s SumValue) string { return formatPresent(s.E5Annual) }, Default: true},
 	}
 }
