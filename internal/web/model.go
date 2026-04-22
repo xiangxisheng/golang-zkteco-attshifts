@@ -34,6 +34,19 @@ func parseModeFrom(r *http.Request) string {
 	return s
 }
 
+func isWeekend(t time.Time) bool {
+	wd := t.Weekday()
+	if len(currentCfg.Weekend) == 0 {
+		return wd == time.Saturday || wd == time.Sunday
+	}
+	for _, v := range currentCfg.Weekend {
+		if int(wd) == v {
+			return true
+		}
+	}
+	return false
+}
+
 func buildModel(ctx context.Context, r *http.Request) (ReportModel, error) {
 	now := time.Now()
 	y := now.Year()
@@ -88,12 +101,11 @@ func buildModel(ctx context.Context, r *http.Request) (ReportModel, error) {
 		}
 		workStr := formatFloat(row.Work)
 		req := row.Required
-		wd := row.AttDate.Weekday()
-		isWeekend := wd == time.Saturday || wd == time.Sunday
+		isW := isWeekend(row.AttDate)
 		isH := isHoliday(row.AttDate)
 
 		s := sum[uid]
-		if !isWeekend && !isH && req > 0 {
+		if !isW && !isH && req > 0 {
 			s.PresentDays += row.Work / req
 			missing := req - row.Work
 			if missing > 0.001 { // small epsilon
@@ -168,9 +180,7 @@ func buildModel(ctx context.Context, r *http.Request) (ReportModel, error) {
 		// Update Sums
 		s.LeaveHours += days
 		s.LeaveHoursH += val
-		wd := r2.AttDate.Weekday()
-		isWeekend := wd == time.Saturday || wd == time.Sunday
-		if !isWeekend && !isHoliday(r2.AttDate) && req > 0 {
+		if !isWeekend(r2.AttDate) && !isHoliday(r2.AttDate) && req > 0 {
 			s.AbsentDays -= days
 			if s.AbsentDays < 0 {
 				s.AbsentDays = 0

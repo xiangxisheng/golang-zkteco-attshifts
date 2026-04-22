@@ -14,9 +14,22 @@ func computeWeekInfo(year int, month int) (map[int]bool, map[int]string) {
     weekend := map[int]bool{}
     weekNames := map[int]string{}
     names := []string{"日", "一", "二", "三", "四", "五", "六"}
+
+    isWeekend := func(wd time.Weekday) bool {
+        if len(currentCfg.Weekend) == 0 {
+            return wd == time.Saturday || wd == time.Sunday
+        }
+        for _, v := range currentCfg.Weekend {
+            if int(wd) == v {
+                return true
+            }
+        }
+        return false
+    }
+
     for i := 1; i <= dayCount; i++ {
         wd := firstDay.AddDate(0, 0, i-1).Weekday()
-        if wd == time.Saturday || wd == time.Sunday {
+        if isWeekend(wd) {
             weekend[i] = true
         }
         weekNames[i] = names[int(wd)]

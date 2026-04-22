@@ -14,6 +14,7 @@ type Config struct {
     Database string `json:"database"`
     HTTPPort int    `json:"http_port"`
     WWWRoot  string `json:"wwwroot"`
+    Weekend  []int  `json:"weekend"` // [0, 6] for Sun, Sat
 }
 
 func Load(configPath string) (Config, error) {

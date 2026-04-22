@@ -32,7 +32,10 @@ func resolveWWWRoot(cfg config.Config) string {
     return p2
 }
 
+var currentCfg config.Config
+
 func RegisterRoutes(cfg config.Config) {
+    currentCfg = cfg
     root := resolveWWWRoot(cfg)
     fsRoot := http.FileServer(http.Dir(root))
     http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
