@@ -59,8 +59,8 @@ func buildModel(ctx context.Context, r *http.Request) (ReportModel, error) {
 	mode := parseModeFrom(r)
 
 	firstDay := time.Date(y, time.Month(m), 1, 0, 0, 0, 0, time.Local)
-	lastDay := firstDay.AddDate(0, 1, -1)
-	dayCount := lastDay.Day()
+	lastDay := firstDay.AddDate(0, 1, -1).Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+	dayCount := firstDay.AddDate(0, 1, -1).Day()
 
 	setHolidays(ctx, firstDay, lastDay)
 
