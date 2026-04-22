@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 	"zkteco-attshifts/internal/service"
 )
@@ -85,18 +86,29 @@ func buildModel(ctx context.Context, r *http.Request) (ReportModel, error) {
 		if reqPerDay[uid] == nil {
 			reqPerDay[uid] = make(map[int]float64)
 		}
-		daily[uid][d] = DayValue{Work: formatFloat(row.Work), Over: formatFloat(row.Over)}
-		reqPerDay[uid][d] = row.Required
-		s := sum[uid]
+		workStr := formatFloat(row.Work)
+		req := row.Required
 		wd := row.AttDate.Weekday()
 		isWeekend := wd == time.Saturday || wd == time.Sunday
-		if !isWeekend && !isHoliday(row.AttDate) && row.Required > 0 {
-			s.PresentDays += row.Work / row.Required
-			missing := row.Required - row.Work
-			if missing > 0 {
-				s.AbsentDays += missing / row.Required
+		isH := isHoliday(row.AttDate)
+
+		s := sum[uid]
+		if !isWeekend && !isH && req > 0 {
+			s.PresentDays += row.Work / req
+			missing := req - row.Work
+			if missing > 0.001 { // small epsilon
+				s.AbsentDays += missing / req
+				if row.Work == 0 {
+					workStr = "旷"
+				} else {
+					workStr += "旷"
+				}
 			}
 		}
+
+		daily[uid][d] = DayValue{Work: workStr, Over: formatFloat(row.Over)}
+		reqPerDay[uid][d] = req
+
 		if row.Over > 0 {
 			s.OverDays += 1
 		}
@@ -108,18 +120,63 @@ func buildModel(ctx context.Context, r *http.Request) (ReportModel, error) {
 		s.HolidayOT += row.HolidayOT
 		sum[uid] = s
 	}
+
 	leaves, _ := service.QueryLeaveSymbols(ctx, firstDay, lastDay)
+	exceptionSymbols := map[int]string{
+		1: "检",
+		2: "病",
+		3: "事",
+		4: "产",
+		5: "年",
+	}
+
 	for _, r2 := range leaves {
 		val := extractFloat(r2.Symbol)
-		s := sum[r2.UserID]
+		uid := r2.UserID
+		d := r2.AttDate.Day()
+		s := sum[uid]
 		days := 0.0
-		if v, ok := reqPerDay[r2.UserID][r2.AttDate.Day()]; ok && v > 0 {
+		req := 0.0
+		if v, ok := reqPerDay[uid][d]; ok && v > 0 {
+			req = v
 			days = val / v
 		} else if r2.Required > 0 {
+			req = r2.Required
 			days = val / r2.Required
 		}
+
+		// Update Display String
+		dv := daily[uid][d]
+		sym := exceptionSymbols[r2.ExceptionID]
+		if sym == "" {
+			sym = "假"
+		}
+		if strings.Contains(dv.Work, "旷") {
+			// Replace "旷" or "X旷" with leave symbol
+			if dv.Work == "旷" {
+				dv.Work = sym
+			} else {
+				dv.Work = strings.Replace(dv.Work, "旷", sym, 1)
+			}
+		} else if dv.Work == "" {
+			dv.Work = sym
+		} else {
+			dv.Work += sym
+		}
+		daily[uid][d] = dv
+
+		// Update Sums
 		s.LeaveHours += days
 		s.LeaveHoursH += val
+		wd := r2.AttDate.Weekday()
+		isWeekend := wd == time.Saturday || wd == time.Sunday
+		if !isWeekend && !isHoliday(r2.AttDate) && req > 0 {
+			s.AbsentDays -= days
+			if s.AbsentDays < 0 {
+				s.AbsentDays = 0
+			}
+		}
+
 		switch r2.ExceptionID {
 		case 1:
 			s.E1Business += days
@@ -132,7 +189,7 @@ func buildModel(ctx context.Context, r *http.Request) (ReportModel, error) {
 		case 5:
 			s.E5Annual += days
 		}
-		sum[r2.UserID] = s
+		sum[uid] = s
 	}
 	var days []int
 	for i := 1; i <= dayCount; i++ {
